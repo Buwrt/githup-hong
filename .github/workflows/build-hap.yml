@@ -68,15 +68,19 @@ jobs:
           MAJOR=$(echo "$VER" | cut -d. -f1-2).0
           echo "SDK版本=$VER  API=$API  候选compileSdk/compatibleSdk=$API"
 
-          for HV in 5.19.8 5.17.6 5.15.5 5.14.2; do
+          # 版本怎么排：镜像里的 SDK 是 5.0.5 这一代，太新的 hvigor（5.15+）会反过来
+          # 要求工程「先升级结构」；太旧的又可能不认新字段。所以从接近 SDK 的
+          # 版本往上试，最后再试最新的几个。hvigor-config 的 modelVersion
+          # 跟着 HV 走 —— 它写死 5.0.0 而依赖装的是 5.19.8 时也会互相打架。
+          for HV in 5.14.2 5.13.0 5.11.1 5.9.2 5.7.0 5.5.0 5.2.0 5.15.5 5.17.6 5.19.8; do
             # compatibleSdkVersion 在新版 hvigor 里必须是**整数**（API 号），
           # 写 "5.0.0(12)" 这种字符串会直接 Schema 校验失败：
           #   instancePath: 'app.products[0].compatibleSdkVersion' must be integer
-          for COMPAT in "${API}" "${API}"; do
+          for COMPAT in "${API}"; do
               echo "########## 试 hvigor=$HV  compatibleSdkVersion=$COMPAT ##########"
               cat > hvigor/hvigor-config.json5 <<JSONCFG
           {
-            "modelVersion": "5.0.0",
+            "modelVersion": "$HV",
             "dependencies": {
               "@ohos/hvigor": "$HV",
               "@ohos/hvigor-ohos-plugin": "$HV"
