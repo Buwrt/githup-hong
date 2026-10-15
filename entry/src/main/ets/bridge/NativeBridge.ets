@@ -655,21 +655,29 @@ export class NativeBridge {
 
 /*
  * UIAbility 的 onForeground / onBackground 与页面组件不是同一个作用域，
- * 而通知轮询的「续命」必须由 Ability 那一层触发，所以这里留一个模块级
- * 句柄：页面创建桥接时登记，Ability 生命周期变化时回调。
+ * 而通知轮询的「续命」必须由 Ability 那一层触发，所以这里留一个句柄：
+ * 页面创建桥接时登记，Ability 生命周期变化时回调。
+ *
+ * ⚠️ 为什么用静态属性而不是模块级 `let`：ArkTS 不允许在模块顶层用
+ *    let / var 声明可变变量（只允许 const、类型、函数与类）。
+ *    写成模块级 let 会直接编译不过，所以挂在类的静态属性上。
  */
-let gBridge: NativeBridge | null = null;
+class BridgeHolder {
+  static current: NativeBridge | null = null;
+}
 
 export function registerBridge(b: NativeBridge): void {
-  gBridge = b;
+  BridgeHolder.current = b;
 }
 
 export function notifyForeground(): void {
-  if (gBridge) gBridge.onForeground();
+  const b: NativeBridge | null = BridgeHolder.current;
+  if (b) b.onForeground();
 }
 
 export function notifyBackground(): void {
-  if (gBridge) gBridge.onBackground();
+  const b: NativeBridge | null = BridgeHolder.current;
+  if (b) b.onBackground();
 }
 
 function jq(s: string): string {
