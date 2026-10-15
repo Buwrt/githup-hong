@@ -43,7 +43,8 @@ jobs:
           java-version: '17'
 
       - name: 准备日志
-        run: : > "$GITHUB_WORKSPACE/ci-build.log"
+        run: |
+          : > "$GITHUB_WORKSPACE/ci-build.log"
 
       - name: 生成容器内构建脚本
         run: |
