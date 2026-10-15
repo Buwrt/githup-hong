@@ -1,0 +1,69 @@
+name: probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: 探查
+        run: |
+          mkdir -p /tmp/p
+          {
+          echo "===== Docker Hub 上的鸿蒙 CI 镜像标签 ====="
+          curl -s "https://hub.docker.com/v2/repositories/looha/oharmony-ci/tags?page_size=100" \
+            | grep -oE '"name":"[^"]+"' | head -60
+
+          echo
+          echo "===== Docker Hub 上搜 harmonyos 相关镜像 ====="
+          curl -s "https://hub.docker.com/v2/search/repositories?query=harmonyos&page_size=25" \
+            | grep -oE '"repo_name":"[^"]+"' | head -30
+          curl -s "https://hub.docker.com/v2/search/repositories?query=ohos-sdk&page_size=25" \
+            | grep -oE '"repo_name":"[^"]+"' | head -30
+
+          echo
+          echo "===== 可用 hvigor 版本（5.x）====="
+          npm view @ohos/hvigor versions --registry=https://repo.harmonyos.com/npm/ --json 2>/dev/null \
+            | grep -oE '"5\.[0-9]+\.[0-9]+"' | tr -d '"' | tail -20
+          echo "===== 可用 hvigor-ohos-plugin 版本（5.x）====="
+          npm view @ohos/hvigor-ohos-plugin versions --registry=https://repo.harmonyos.com/npm/ --json 2>/dev/null \
+            | grep -oE '"5\.[0-9]+\.[0-9]+"' | tr -d '"' | tail -20
+          } 2>&1 | tee /tmp/p/log.txt
+
+          echo
+          echo "===== 各镜像标签里的 SDK 版本 ====="
+          for tag in v5.0.5.200 5.0.5.200 v5.1.0.849 latest; do
+            echo "--- looha/oharmony-ci:$tag ---"
+            if docker pull "looha/oharmony-ci:$tag" >/dev/null 2>&1; then
+              docker run --rm --entrypoint bash "looha/oharmony-ci:$tag" -lc '
+                echo -n "CLT: "; cat /opt/command-line-tools/oh-uni-package.json 2>/dev/null | head -c 200; echo
+                for d in /opt/command-line-tools/sdk/default/*/ets; do
+                  echo -n "SDK $d version="; grep -m1 -oE "\"version\"\s*:\s*\"[^\"]+\"" "$d/oh-uni-package.json" 2>/dev/null
+                done
+                echo -n "apiVersion: "; ls /opt/command-line-tools/sdk/default/openharmony/ets/api 2>/dev/null | head
+              ' 2>&1 | tee -a /tmp/p/log.txt
+            else
+              echo "拉取失败" | tee -a /tmp/p/log.txt
+            fi
+          done
+
+      - name: 回传日志
+        if: always()
+        run: |
+          git init -q tmp-repo 2>/dev/null || true
+          echo skip
+      - uses: actions/checkout@v4
+      - name: 提交日志到 ci-logs
+        if: always()
+        run: |
+          git config user.name ci; git config user.email ci@users.noreply.github.com
+          git checkout -B ci-logs
+          mkdir -p ci
+          cp /tmp/p/log.txt ci/probe.log
+          git add -f ci
+          git commit -m "probe run $GITHUB_RUN_ID" || echo "无变化"
+          git push -f origin ci-logs
