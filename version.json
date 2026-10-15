@@ -1,0 +1,10 @@
+{
+  "version": "1.0.0",
+  "hap": "",
+  "name": "githup-hong v1.0.0",
+  "published": "",
+  "notes": "githup 纯血鸿蒙版：ArkTS + ArkWeb 重写原生层，前端 25,195 行 JS 原样复用。本版补齐三步：两步验证器（TOTP/HOTP 算法 + 常驻通知刷新）、18 条下载加速镜像通道（镜像在前直连兜底，走镜像不转发凭据）、GitHub 通知轮询（15 分钟一轮，未读汇总通知）。未移植：五环防护链（鸿蒙由系统安装时校验 HAP 签名）、断点续传、限速通道。注意：本工程未经 DevEco Studio 编译验证，SDK 在华为私有源无法匿名获取。",
+  "_说明": "HAP 由 DevEco Studio 本地编译产出，安装包不提交进仓库。发布新版本时把编译好的 entry-default-signed.hap 作为 Release 附件上传，再回填 hap / size / sha256。",
+  "size": 0,
+  "sha256": ""
+}

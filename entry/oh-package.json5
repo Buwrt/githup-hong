@@ -1,0 +1,10 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "githup for HarmonyOS NEXT",
+  "main": "",
+  "author": "Buwrt",
+  "license": "Apache-2.0",
+  "dependencies": {},
+  "devDependencies": {}
+}
