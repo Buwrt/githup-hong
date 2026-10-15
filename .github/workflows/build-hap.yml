@@ -10,7 +10,7 @@
 # 工具链 ——
 #   社区维护的鸿蒙 CI 容器镜像 looha/oharmony-ci:v5.0.5.200，
 #   内含 Command Line Tools 与 OpenHarmony SDK 5.0.1.106（API 12），
-#   正好对得上本工程的目标 API 12。
+#   对得上本工程的目标 API 12。
 #
 # ══ 签名 ══
 #   HarmonyOS NEXT 真机只认华为 AGC 颁发的证书链（p12 + cer + p7b）。
@@ -38,93 +38,98 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-java@v4
-        with: { distribution: temurin, java-version: '17' }
+        with:
+          distribution: temurin
+          java-version: '17'
 
       - name: 准备日志
         run: : > "$GITHUB_WORKSPACE/ci-build.log"
+
+      - name: 生成容器内构建脚本
+        run: |
+          cat > "$GITHUB_WORKSPACE/ci-build.sh" <<'EOS'
+          #!/bin/bash
+          set -x
+          source /etc/profile 2>/dev/null || true
+          cd /src
+          SDK=/opt/command-line-tools/sdk/default/openharmony
+          echo "sdk.dir=$SDK" > local.properties
+          echo "===== SDK 元数据 ====="
+          head -20 "$SDK/ets/oh-uni-package.json"
+          VER=$(grep -oE '"version"[[:space:]]*:[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+' "$SDK/ets/oh-uni-package.json" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          API=$(grep -oE '"apiVersion"[[:space:]]*:[[:space:]]*"?[0-9]+' "$SDK/ets/oh-uni-package.json" | grep -oE '[0-9]+' | tail -1)
+          [ -z "$API" ] && API=12
+          MAJOR=$(echo "$VER" | cut -d. -f1-2).0
+          echo "SDK版本=$VER  API=$API  候选=${MAJOR}(${API})"
+
+          for HV in 5.19.8 5.17.6 5.15.5 5.14.2; do
+            for COMPAT in "${MAJOR}(${API})" "5.0.0(12)"; do
+              echo "########## 试 hvigor=$HV  compatibleSdkVersion=$COMPAT ##########"
+              cat > hvigor/hvigor-config.json5 <<JSONCFG
+          {
+            "modelVersion": "5.0.0",
+            "dependencies": {
+              "@ohos/hvigor": "$HV",
+              "@ohos/hvigor-ohos-plugin": "$HV"
+            },
+            "execution": { "daemon": false, "incremental": false, "parallel": false, "typeCheck": false },
+            "logging": { "level": "info" },
+            "debugging": { "stacktrace": false },
+            "nodeOptions": { "maxOldSpaceSize": 8192 }
+          }
+          JSONCFG
+              cat > build-profile.json5 <<JSONBP
+          {
+            "app": {
+              "signingConfigs": [],
+              "products": [
+                {
+                  "name": "default",
+                  "compatibleSdkVersion": "$COMPAT",
+                  "runtimeOS": "OpenHarmony",
+                  "buildOption": { "strictMode": { "caseSensitiveCheck": true, "useNormalizedOHMUrl": true } }
+                }
+              ],
+              "buildModeSet": [ { "name": "debug" }, { "name": "release" } ]
+            },
+            "modules": [
+              {
+                "name": "entry",
+                "srcPath": "./entry",
+                "targets": [ { "name": "default", "applyToProducts": ["default"] } ]
+              }
+            ]
+          }
+          JSONBP
+              rm -rf entry/build
+              hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
+              if find entry/build -name "*.hap" 2>/dev/null | grep -q .; then
+                echo "BUILD_OK hvigor=$HV compatibleSdkVersion=$COMPAT"
+                echo "HV=$HV" > /src/ci-build.env
+                echo "COMPAT=$COMPAT" >> /src/ci-build.env
+                break 2
+              fi
+            done
+          done
+          echo "===== 产物 ====="
+          find entry/build -name "*.hap" | sort
+          EOS
+          chmod +x "$GITHUB_WORKSPACE/ci-build.sh"
 
       - name: 拉镜像
         run: |
           docker pull looha/oharmony-ci:v5.0.5.200 2>&1 | tail -2
           echo "IMAGE=looha/oharmony-ci:v5.0.5.200" >> "$GITHUB_ENV"
 
-      # -----------------------------------------------------
-      # 编译：hvigor 版本与 SDK 版本要能对上，源上 5.0.0 已下架，
-      # 所以按候选逐个试，第一个通过的就用它。
-      # -----------------------------------------------------
       - name: 编译 HAP
         id: build
         run: |
           docker run --rm \
             -v "$GITHUB_WORKSPACE:/src" -w /src \
-            --entrypoint bash "${IMAGE}" -lc '
-            set -x
-            source /etc/profile 2>/dev/null || true
-            SDK=/opt/command-line-tools/sdk/default/openharmony
-            echo "sdk.dir=$SDK" > local.properties
-            echo "===== SDK 元数据 ====="
-            cat $SDK/ets/oh-uni-package.json | head -20
-            VER=$(grep -oE "\"version\"[[:space:]]*:[[:space:]]*\"[0-9]+\.[0-9]+\.[0-9]+" $SDK/ets/oh-uni-package.json | grep -oE "[0-9]+\.[0-9]+\.[0-9]+" | head -1)
-            API=$(grep -oE "\"apiVersion\"[[:space:]]*:[[:space:]]*\"?[0-9]+" $SDK/ets/oh-uni-package.json | grep -oE "[0-9]+$" | head -1)
-            [ -z "$API" ] && API=12
-            MAJOR=$(echo "$VER" | cut -d. -f1-2).0
-            echo "SDK版本=$VER  API=$API"
-            echo "候选 compatibleSdkVersion: ${MAJOR}(${API}) / 5.0.0(12)"
-
-            for HV in 5.19.8 5.17.6 5.15.5 5.14.2; do
-              for COMPAT in "${MAJOR}(${API})" "5.0.0(12)"; do
-                echo "########## 试 hvigor=$HV  compatibleSdkVersion=$COMPAT ##########"
-                cat > hvigor/hvigor-config.json5 <<JSON
-            {
-              "modelVersion": "5.0.0",
-              "dependencies": {
-                "@ohos/hvigor": "$HV",
-                "@ohos/hvigor-ohos-plugin": "$HV"
-              },
-              "execution": { "daemon": false, "incremental": false, "parallel": false, "typeCheck": false },
-              "logging": { "level": "info" },
-              "debugging": { "stacktrace": false },
-              "nodeOptions": { "maxOldSpaceSize": 8192 }
-            }
-            JSON
-                cat > build-profile.json5 <<JSON
-            {
-              "app": {
-                "signingConfigs": [],
-                "products": [
-                  {
-                    "name": "default",
-                    "compatibleSdkVersion": "$COMPAT",
-                    "runtimeOS": "OpenHarmony",
-                    "buildOption": { "strictMode": { "caseSensitiveCheck": true, "useNormalizedOHMUrl": true } }
-                  }
-                ],
-                "buildModeSet": [ { "name": "debug" }, { "name": "release" } ]
-              },
-              "modules": [
-                { "name": "entry", "srcPath": "./entry",
-                  "targets": [ { "name": "default", "applyToProducts": ["default"] } ] }
-              ]
-            }
-            JSON
-                rm -rf entry/build
-                hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
-                if find entry/build -name "*.hap" | grep -q .; then
-                  echo "✅ 成功：hvigor=$HV  compatibleSdkVersion=$COMPAT"
-                  echo "HVIGOR=$HV" > /src/ci-build.env
-                  echo "COMPAT=$COMPAT" >> /src/ci-build.env
-                  break 2
-                fi
-              done
-            done
-            echo "===== 产物 ====="
-            find entry/build -name "*.hap" | sort
-          ' 2>&1 | tee -a "$GITHUB_WORKSPACE/ci-build.log"
+            --entrypoint bash "${IMAGE}" -lc 'bash /src/ci-build.sh' \
+            2>&1 | tee -a "$GITHUB_WORKSPACE/ci-build.log"
           cat "$GITHUB_WORKSPACE/ci-build.env" 2>/dev/null || true
 
-      # -----------------------------------------------------
-      # 签名
-      # -----------------------------------------------------
       - name: 签名 HAP
         id: sign
         if: always()
@@ -132,12 +137,14 @@ jobs:
           UNSIGNED=$(find "$GITHUB_WORKSPACE/entry/build" -name "*.hap" | head -1)
           echo "待签: $UNSIGNED"
           mkdir -p "$GITHUB_WORKSPACE/out"
-          if [ -z "$UNSIGNED" ]; then echo "没有产物，跳过"; exit 0; fi
+          if [ -z "$UNSIGNED" ]; then echo "没有产物，跳过签名"; exit 0; fi
           cp "$UNSIGNED" "$GITHUB_WORKSPACE/out/githup-hong-unsigned.hap"
           docker run --rm -v "$GITHUB_WORKSPACE/out:/out" --entrypoint bash "${IMAGE}" -lc '
             LIB=$(find /opt -name "hap-sign-tool.jar" | head -1)
-            echo "LIB=$LIB"; cp "$LIB" /out/hap-sign-tool.jar
-            D=$(dirname "$LIB"); cp "$D"/OpenHarmony*.p12 "$D"/OpenHarmony*.pem "$D"/Unsgned*.json /out/ 2>/dev/null || true
+            echo "LIB=$LIB"
+            cp "$LIB" /out/hap-sign-tool.jar
+            D=$(dirname "$LIB")
+            cp "$D"/OpenHarmony*.p12 "$D"/OpenHarmony*.pem "$D"/Unsgned*.json /out/ 2>/dev/null || true
           ' 2>&1 | tee -a "$GITHUB_WORKSPACE/ci-build.log"
           cd "$GITHUB_WORKSPACE/out"
           ls -l
@@ -177,7 +184,10 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         if: always()
-        with: { name: hap, path: out/*.hap, if-no-files-found: warn }
+        with:
+          name: hap
+          path: out/*.hap
+          if-no-files-found: warn
 
       - name: 发布/更新 Release
         if: always()
@@ -187,15 +197,20 @@ jobs:
           set -x
           TAG=v1.0.0
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "githup-hong v1.0.0" --notes "自动构建产物"
-          for a in $(gh release view "$TAG" --json assets -q '.assets[].name'); do gh release delete-asset "$TAG" "$a" -y || true; done
+          for a in $(gh release view "$TAG" --json assets -q '.assets[].name'); do
+            gh release delete-asset "$TAG" "$a" -y || true
+          done
           if ls out/*.hap >/dev/null 2>&1; then gh release upload "$TAG" out/*.hap --clobber; fi
-          for f in out/*.hap; do [ -f "$f" ] && echo "$f $(stat -c%s $f) sha256=$(sha256sum $f|cut -d' ' -f1)"; done
+          for f in out/*.hap; do
+            [ -f "$f" ] && echo "$f $(stat -c%s $f) sha256=$(sha256sum $f | cut -d' ' -f1)"
+          done
         continue-on-error: true
 
       - name: 上报构建日志
         if: always()
         run: |
-          git config user.name ci; git config user.email ci@users.noreply.github.com
+          git config user.name ci
+          git config user.email ci@users.noreply.github.com
           git checkout -B ci-logs
           mkdir -p ci
           cp "$GITHUB_WORKSPACE/ci-build.log" ci/last-build.log
