@@ -1,17 +1,16 @@
 # ============================================================
 # githup-hong · 自动构建 HAP 并发布到 Release
 # ============================================================
-#
-# 为什么要有这条流水线 ——
+# 为什么在 CI 上构建 ——
 #   本工程的维护环境拿不到 HarmonyOS SDK（华为源在部分网络下不可达），
 #   HAP 只能由官方工具链（hvigor + OHOS SDK）编译出来。
-#   GitHub Actions 的 runner 出网不受限，所以把编译搬到 CI：
-#   推代码即构建，产物自动挂到 Release。
+#   GitHub Actions runner 出网不受限，所以编译搬到 CI：推代码即构建，
+#   产物自动挂到 Release。
 #
-# 工具链怎么来的 ——
-#   华为的 Command Line Tools 官方下载页在国内网络常常取不到，
-#   这里改用社区维护的鸿蒙 CI 容器镜像（Docker Hub，runner 可达），
-#   镜像里已经装好了 ohpm / hvigorw / SDK 工具链。
+# 工具链 ——
+#   社区维护的鸿蒙 CI 容器镜像 looha/oharmony-ci:v5.0.5.200，
+#   内含 Command Line Tools 与 OpenHarmony SDK 5.0.1.106（API 12），
+#   正好对得上本工程的目标 API 12。
 #
 # ══ 签名 ══
 #   HarmonyOS NEXT 真机只认华为 AGC 颁发的证书链（p12 + cer + p7b）。
@@ -36,101 +35,23 @@ jobs:
       contents: write
 
     steps:
-      - name: 检出源码
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: 装 JDK 17（签名工具需要）
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: 装 Node 20（hvigor 是 Node 程序）
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
 
       - name: 准备日志
-        run: |
-          : > "$GITHUB_WORKSPACE/ci-build.log"
-          echo "run=$GITHUB_RUN_ID" >> "$GITHUB_WORKSPACE/ci-build.log"
+        run: : > "$GITHUB_WORKSPACE/ci-build.log"
 
-      # -------------------------------------------------------
-      # CI 专用构建配置：不签名 + runtimeOS 用容器里的 SDK 能对上的那套
-      # -------------------------------------------------------
-      - name: 生成 CI 构建配置
+      - name: 拉镜像
         run: |
-          cat > build-profile.json5 <<'JSON'
-          {
-            "app": {
-              "signingConfigs": [],
-              "products": [
-                {
-                  "name": "default",
-                  "compatibleSdkVersion": "5.0.0(12)",
-                  "runtimeOS": "OpenHarmony",
-                  "buildOption": {
-                    "strictMode": {
-                      "caseSensitiveCheck": true,
-                      "useNormalizedOHMUrl": true
-                    }
-                  }
-                }
-              ],
-              "buildModeSet": [
-                { "name": "debug" },
-                { "name": "release" }
-              ]
-            },
-            "modules": [
-              {
-                "name": "entry",
-                "srcPath": "./entry",
-                "targets": [
-                  { "name": "default", "applyToProducts": ["default"] }
-                ]
-              }
-            ]
-          }
-          JSON
-          cat build-profile.json5
+          docker pull looha/oharmony-ci:v5.0.5.200 2>&1 | tail -2
+          echo "IMAGE=looha/oharmony-ci:v5.0.5.200" >> "$GITHUB_ENV"
 
-      # -------------------------------------------------------
-      # 拉鸿蒙 CI 镜像并编译
-      # -------------------------------------------------------
-      - name: 拉鸿蒙 CI 镜像
-        run: |
-          set -x
-          for tag in v5.0.5.200 v5.1.0.849 latest; do
-            if docker pull "looha/oharmony-ci:${tag}" 2>&1 | tail -3; then
-              echo "IMAGE=looha/oharmony-ci:${tag}" >> "$GITHUB_ENV"; break
-            fi
-          done
-          echo "IMAGE=${IMAGE}"
-
-      - name: 探查镜像里的工具链
-        run: |
-          docker run --rm --entrypoint bash "${IMAGE}" -lc '
-            source /etc/profile 2>/dev/null || true
-            echo "=== which ==="
-            command -v hvigorw; command -v ohpm; command -v sdkmgr; command -v sdkmanager; command -v java; command -v node
-            echo "=== 可能装工具链的位置 ==="
-            ls / 2>/dev/null
-            ls /opt 2>/dev/null
-            ls /root 2>/dev/null
-            echo "=== 找 SDK ==="
-            find / -maxdepth 7 -type d \( -name "toolchains" -o -name "ets" \) 2>/dev/null | head -20
-            echo "=== SDK 内容 ==="
-            ls /opt/command-line-tools/sdk/default/openharmony 2>/dev/null
-            ls /opt/command-line-tools/sdk/default/openharmony/ets 2>/dev/null
-            echo "=== hvigorw 版本 ==="
-            hvigorw --version 2>&1 | head -3
-            echo "=== 可用插件版本 ==="
-            npm view @ohos/hvigor-ohos-plugin versions --registry=https://repo.harmonyos.com/npm/ 2>&1 | tail -5
-            echo "=== local.properties / sdk.dir ==="
-            env | grep -i -E "ohos|sdk|command" || true
-          ' 2>&1 | tee -a "$GITHUB_WORKSPACE/ci-build.log"
-
+      # -----------------------------------------------------
+      # 编译：hvigor 版本与 SDK 版本要能对上，源上 5.0.0 已下架，
+      # 所以按候选逐个试，第一个通过的就用它。
+      # -----------------------------------------------------
       - name: 编译 HAP
         id: build
         run: |
@@ -139,41 +60,84 @@ jobs:
             --entrypoint bash "${IMAGE}" -lc '
             set -x
             source /etc/profile 2>/dev/null || true
-            export TOOL_HOME=${TOOL_HOME:-/home/ohos/command-line-tools}
-            export PATH="$TOOL_HOME/bin:$TOOL_HOME/ohpm/bin:$PATH"
-            command -v hvigorw || find / -maxdepth 6 -name hvigorw 2>/dev/null | head -3
-            # 让 hvigor 找得到 SDK
-            SDKDIR=$(dirname $(find / -maxdepth 7 -type d -name toolchains 2>/dev/null | head -1))
-            echo "SDKDIR=$SDKDIR"
-            [ -n "$SDKDIR" ] && echo "sdk.dir=$SDKDIR" > local.properties
-            cat local.properties 2>/dev/null
-            hvigorw clean --no-daemon 2>&1 | tail -20
-            hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
-          ' 2>&1 | tee -a "$GITHUB_WORKSPACE/ci-build.log"
-          echo "===== 产物 ====="
-          find . -name "*.hap" | sort
+            SDK=/opt/command-line-tools/sdk/default/openharmony
+            echo "sdk.dir=$SDK" > local.properties
+            echo "===== SDK 元数据 ====="
+            cat $SDK/ets/oh-uni-package.json | head -20
+            VER=$(grep -oE "\"version\"[[:space:]]*:[[:space:]]*\"[0-9]+\.[0-9]+\.[0-9]+" $SDK/ets/oh-uni-package.json | grep -oE "[0-9]+\.[0-9]+\.[0-9]+" | head -1)
+            API=$(grep -oE "\"apiVersion\"[[:space:]]*:[[:space:]]*\"?[0-9]+" $SDK/ets/oh-uni-package.json | grep -oE "[0-9]+$" | head -1)
+            [ -z "$API" ] && API=12
+            MAJOR=$(echo "$VER" | cut -d. -f1-2).0
+            echo "SDK版本=$VER  API=$API"
+            echo "候选 compatibleSdkVersion: ${MAJOR}(${API}) / 5.0.0(12)"
 
-      # -------------------------------------------------------
+            for HV in 5.19.8 5.17.6 5.15.5 5.14.2; do
+              for COMPAT in "${MAJOR}(${API})" "5.0.0(12)"; do
+                echo "########## 试 hvigor=$HV  compatibleSdkVersion=$COMPAT ##########"
+                cat > hvigor/hvigor-config.json5 <<JSON
+            {
+              "modelVersion": "5.0.0",
+              "dependencies": {
+                "@ohos/hvigor": "$HV",
+                "@ohos/hvigor-ohos-plugin": "$HV"
+              },
+              "execution": { "daemon": false, "incremental": false, "parallel": false, "typeCheck": false },
+              "logging": { "level": "info" },
+              "debugging": { "stacktrace": false },
+              "nodeOptions": { "maxOldSpaceSize": 8192 }
+            }
+            JSON
+                cat > build-profile.json5 <<JSON
+            {
+              "app": {
+                "signingConfigs": [],
+                "products": [
+                  {
+                    "name": "default",
+                    "compatibleSdkVersion": "$COMPAT",
+                    "runtimeOS": "OpenHarmony",
+                    "buildOption": { "strictMode": { "caseSensitiveCheck": true, "useNormalizedOHMUrl": true } }
+                  }
+                ],
+                "buildModeSet": [ { "name": "debug" }, { "name": "release" } ]
+              },
+              "modules": [
+                { "name": "entry", "srcPath": "./entry",
+                  "targets": [ { "name": "default", "applyToProducts": ["default"] } ] }
+              ]
+            }
+            JSON
+                rm -rf entry/build
+                hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
+                if find entry/build -name "*.hap" | grep -q .; then
+                  echo "✅ 成功：hvigor=$HV  compatibleSdkVersion=$COMPAT"
+                  echo "HVIGOR=$HV" > /src/ci-build.env
+                  echo "COMPAT=$COMPAT" >> /src/ci-build.env
+                  break 2
+                fi
+              done
+            done
+            echo "===== 产物 ====="
+            find entry/build -name "*.hap" | sort
+          ' 2>&1 | tee -a "$GITHUB_WORKSPACE/ci-build.log"
+          cat "$GITHUB_WORKSPACE/ci-build.env" 2>/dev/null || true
+
+      # -----------------------------------------------------
       # 签名
-      # -------------------------------------------------------
+      # -----------------------------------------------------
       - name: 签名 HAP
         id: sign
         if: always()
         run: |
-          UNSIGNED=$(find "$GITHUB_WORKSPACE" -name "*.hap" | head -1)
+          UNSIGNED=$(find "$GITHUB_WORKSPACE/entry/build" -name "*.hap" | head -1)
           echo "待签: $UNSIGNED"
-          if [ -z "$UNSIGNED" ]; then echo "没有产物"; exit 0; fi
           mkdir -p "$GITHUB_WORKSPACE/out"
+          if [ -z "$UNSIGNED" ]; then echo "没有产物，跳过"; exit 0; fi
           cp "$UNSIGNED" "$GITHUB_WORKSPACE/out/githup-hong-unsigned.hap"
-          # 签名工具在镜像里，把 jar 和自带密钥拷出来
           docker run --rm -v "$GITHUB_WORKSPACE/out:/out" --entrypoint bash "${IMAGE}" -lc '
-            set -x
-            LIB=$(find / -name "hap-sign-tool.jar" 2>/dev/null | head -1)
-            echo "LIB=$LIB"
-            if [ -z "$LIB" ]; then echo "镜像里没有签名工具"; exit 1; fi
-            cp "$LIB" /out/hap-sign-tool.jar
-            D=$(dirname "$LIB")
-            cp "$D"/OpenHarmony*.p12 "$D"/OpenHarmony*.pem "$D"/Unsgned*.json /out/ 2>/dev/null || true
+            LIB=$(find /opt -name "hap-sign-tool.jar" | head -1)
+            echo "LIB=$LIB"; cp "$LIB" /out/hap-sign-tool.jar
+            D=$(dirname "$LIB"); cp "$D"/OpenHarmony*.p12 "$D"/OpenHarmony*.pem "$D"/Unsgned*.json /out/ 2>/dev/null || true
           ' 2>&1 | tee -a "$GITHUB_WORKSPACE/ci-build.log"
           cd "$GITHUB_WORKSPACE/out"
           ls -l
@@ -197,7 +161,7 @@ jobs:
               -profileCertFile OpenHarmonyProfileRelease.pem \
               -inFile UnsgnedReleasedProfileTemplate.json \
               -keystoreFile OpenHarmony.p12 -outFile app-profile.p7b \
-              -keyPwd 123456 -keystorePwd 123456
+              -keyPwd 123456 -keystorePwd 123456 2>&1 | tail -5
             keytool -genkeypair -alias ohos-app -keyalg EC -groupname secp256r1 \
               -sigalg SHA256withECDSA -dname "CN=githup-hong, O=Buwrt, C=CN" \
               -keystore app.p12 -storetype pkcs12 -storepass 123456 -keypass 123456 -validity 9125
@@ -206,22 +170,15 @@ jobs:
               -keyAlias ohos-app -signAlg SHA256withECDSA \
               -appCertFile app.cer -profileFile app-profile.p7b \
               -inFile githup-hong-unsigned.hap -keystoreFile app.p12 \
-              -outFile githup-hong-signed.hap -keyPwd 123456 -keystorePwd 123456
+              -outFile githup-hong-signed.hap -keyPwd 123456 -keystorePwd 123456 2>&1 | tail -5
             echo "KIND=selfsigned" >> "$GITHUB_ENV"
           fi
           ls -lh
 
-      - name: 上传产物
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: hap
-          path: out/*.hap
-          if-no-files-found: warn
+        with: { name: hap, path: out/*.hap, if-no-files-found: warn }
 
-      # -------------------------------------------------------
-      # 发布到 Release
-      # -------------------------------------------------------
       - name: 发布/更新 Release
         if: always()
         env:
@@ -229,25 +186,16 @@ jobs:
         run: |
           set -x
           TAG=v1.0.0
-          gh release view "$TAG" >/dev/null 2>&1 || \
-            gh release create "$TAG" --title "githup-hong v1.0.0" --notes "自动构建产物"
-          for a in $(gh release view "$TAG" --json assets -q '.assets[].name'); do
-            gh release delete-asset "$TAG" "$a" -y || true
-          done
-          ls out/ 2>/dev/null
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "githup-hong v1.0.0" --notes "自动构建产物"
+          for a in $(gh release view "$TAG" --json assets -q '.assets[].name'); do gh release delete-asset "$TAG" "$a" -y || true; done
           if ls out/*.hap >/dev/null 2>&1; then gh release upload "$TAG" out/*.hap --clobber; fi
-          echo "---- 校验值 ----"
           for f in out/*.hap; do [ -f "$f" ] && echo "$f $(stat -c%s $f) sha256=$(sha256sum $f|cut -d' ' -f1)"; done
         continue-on-error: true
 
-      # -------------------------------------------------------
-      # 把日志推到 ci-logs 分支（维护环境读不到 Actions 日志接口，靠这个回传）
-      # -------------------------------------------------------
       - name: 上报构建日志
         if: always()
         run: |
-          git config user.name "githup-hong-ci"
-          git config user.email "ci@users.noreply.github.com"
+          git config user.name ci; git config user.email ci@users.noreply.github.com
           git checkout -B ci-logs
           mkdir -p ci
           cp "$GITHUB_WORKSPACE/ci-build.log" ci/last-build.log
