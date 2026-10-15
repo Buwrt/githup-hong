@@ -1,0 +1,302 @@
++ source /etc/profile
++ cd /src
++ '[' '!' -f /src/hvigorfile.ts ']'
++ SDK=/opt/command-line-tools/sdk/default/openharmony
++ echo sdk.dir=/opt/command-line-tools/sdk/default/openharmony
+===== SDK 元数据 =====
++ echo '===== SDK 元数据 ====='
++ head -20 /opt/command-line-tools/sdk/default/openharmony/ets/oh-uni-package.json
+{
+  "apiVersion": "13",
+  "displayName": "Ets",
+  "meta": {
+    "metaVersion": "3.0.0"
+  },
+  "path": "ets",
+  "releaseType": "Beta3",
+  "version": "5.0.1.106"
+}++ grep -oE '"version"[[:space:]]*:[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+' /opt/command-line-tools/sdk/default/openharmony/ets/oh-uni-package.json
+++ grep -oE '[0-9]+\.[0-9]+\.[0-9]+'
+++ head -1
++ VER=5.0.1
+++ grep -oE '"apiVersion"[[:space:]]*:[[:space:]]*"?[0-9]+' /opt/command-line-tools/sdk/default/openharmony/ets/oh-uni-package.json
+++ grep -oE '[0-9]+'
+++ tail -1
++ API=13
++ '[' -z 13 ']'
+++ echo 5.0.1
+++ cut -d. -f1-2
++ MAJOR=5.0.0
++ echo 'SDK版本=5.0.1  API=13  候选compileSdk/compatibleSdk=13'
+SDK版本=5.0.1  API=13  候选compileSdk/compatibleSdk=13
++ for HV in 5.14.2 5.13.0 5.11.1 5.9.2 5.7.0 5.5.0 5.2.0 5.15.5 5.17.6 5.19.8
++ for COMPAT in "${API}"
+########## 试 hvigor=5.14.2  compatibleSdkVersion=13 ##########
++ echo '########## 试 hvigor=5.14.2  compatibleSdkVersion=13 ##########'
++ cat
++ cat
++ rm -rf entry/build
++ hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
+Installing dependencies...
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +2
+++
+Progress: resolved 2, reused 0, downloaded 0, added 0
+Progress: resolved 2, reused 0, downloaded 1, added 0
+Progress: resolved 2, reused 0, downloaded 1, added 1
+Progress: resolved 2, reused 0, downloaded 2, added 1
+Progress: resolved 2, reused 0, downloaded 2, added 2, done
+
+dependencies:
++ @ohos/hvigor 5.14.2 (6.26.8 is available)
++ @ohos/hvigor-ohos-plugin 5.14.2 (6.26.8 is available)
+
+Done in 6.9s
+Hvigor install success.
+> hvigor [91mERROR: The project structure and configuration need to be upgraded before use.
+	 Detail: Use the migration tool to update the project structure and configuration with Deveco Studio, or refer to the guide to manually update the project structure and configuration.[39m
+> hvigor [91mERROR: BUILD FAILED in 1 s 332 ms [39m
++ find entry/build -name '*.hap'
++ grep -q .
++ for HV in 5.14.2 5.13.0 5.11.1 5.9.2 5.7.0 5.5.0 5.2.0 5.15.5 5.17.6 5.19.8
++ for COMPAT in "${API}"
+########## 试 hvigor=5.13.0  compatibleSdkVersion=13 ##########
++ echo '########## 试 hvigor=5.13.0  compatibleSdkVersion=13 ##########'
++ cat
++ cat
++ rm -rf entry/build
++ hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
+Installing dependencies...
+ ERR_PNPM_NO_MATCHING_VERSION  No matching version found for @ohos/hvigor-ohos-plugin@5.13.0
+
+This error happened while installing a direct dependency of /root/.hvigor/project_caches/f8087e59fd95af1ae29e8fcb7ff1a3dc/workspace
+
+The latest release of @ohos/hvigor-ohos-plugin is "6.26.8".
+
+Other releases are:
+  * legacy: 6.24.5
+
+If you need the full list of all 83 published versions run "$ pnpm view @ohos/hvigor-ohos-plugin versions".
+Error: /root/.hvigor/wrapper/tools/node_modules/.bin/pnpm install execute failed.See above for details.
++ find entry/build -name '*.hap'
++ grep -q .
++ for HV in 5.14.2 5.13.0 5.11.1 5.9.2 5.7.0 5.5.0 5.2.0 5.15.5 5.17.6 5.19.8
++ for COMPAT in "${API}"
++ echo '########## 试 hvigor=5.11.1  compatibleSdkVersion=13 ##########'
++ cat
+########## 试 hvigor=5.11.1  compatibleSdkVersion=13 ##########
++ cat
++ rm -rf entry/build
++ hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
+Installing dependencies...
+ ERR_PNPM_NO_MATCHING_VERSION  No matching version found for @ohos/hvigor@5.11.1
+
+This error happened while installing a direct dependency of /root/.hvigor/project_caches/f8087e59fd95af1ae29e8fcb7ff1a3dc/workspace
+
+The latest release of @ohos/hvigor is "6.26.8".
+
+Other releases are:
+  * legacy: 6.24.5
+
+If you need the full list of all 82 published versions run "$ pnpm view @ohos/hvigor versions".
+Error: /root/.hvigor/wrapper/tools/node_modules/.bin/pnpm install execute failed.See above for details.
++ find entry/build -name '*.hap'
++ grep -q .
++ for HV in 5.14.2 5.13.0 5.11.1 5.9.2 5.7.0 5.5.0 5.2.0 5.15.5 5.17.6 5.19.8
++ for COMPAT in "${API}"
++ echo '########## 试 hvigor=5.9.2  compatibleSdkVersion=13 ##########'
++ cat
+########## 试 hvigor=5.9.2  compatibleSdkVersion=13 ##########
++ cat
++ rm -rf entry/build
++ hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
+Installing dependencies...
+ ERR_PNPM_NO_MATCHING_VERSION  No matching version found for @ohos/hvigor-ohos-plugin@5.9.2
+
+This error happened while installing a direct dependency of /root/.hvigor/project_caches/f8087e59fd95af1ae29e8fcb7ff1a3dc/workspace
+
+The latest release of @ohos/hvigor-ohos-plugin is "6.26.8".
+
+Other releases are:
+  * legacy: 6.24.5
+
+If you need the full list of all 83 published versions run "$ pnpm view @ohos/hvigor-ohos-plugin versions".
+Error: /root/.hvigor/wrapper/tools/node_modules/.bin/pnpm install execute failed.See above for details.
++ find entry/build -name '*.hap'
++ grep -q .
++ for HV in 5.14.2 5.13.0 5.11.1 5.9.2 5.7.0 5.5.0 5.2.0 5.15.5 5.17.6 5.19.8
++ for COMPAT in "${API}"
++ echo '########## 试 hvigor=5.7.0  compatibleSdkVersion=13 ##########'
++ cat
+########## 试 hvigor=5.7.0  compatibleSdkVersion=13 ##########
++ cat
++ rm -rf entry/build
++ hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
+Installing dependencies...
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +2 -2
+++--
+Progress: resolved 2, reused 0, downloaded 0, added 0
+Progress: resolved 2, reused 0, downloaded 1, added 0
+Progress: resolved 2, reused 0, downloaded 1, added 1
+Progress: resolved 2, reused 0, downloaded 2, added 1
+Progress: resolved 2, reused 0, downloaded 2, added 2, done
+
+dependencies:
+- @ohos/hvigor 5.14.2
++ @ohos/hvigor 5.7.0 (6.26.8 is available)
+- @ohos/hvigor-ohos-plugin 5.14.2
++ @ohos/hvigor-ohos-plugin 5.7.0 (6.26.8 is available)
+
+Done in 6.8s
+Hvigor install success.
+> hvigor [91mERROR: The project structure and configuration need to be upgraded before use.
+	 Detail: Use the migration tool to update the project structure and configuration with Deveco Studio, or refer to the guide to manually update the project structure and configuration.[39m
+> hvigor [91mERROR: BUILD FAILED in 1 s 176 ms [39m
++ find entry/build -name '*.hap'
++ grep -q .
++ for HV in 5.14.2 5.13.0 5.11.1 5.9.2 5.7.0 5.5.0 5.2.0 5.15.5 5.17.6 5.19.8
++ for COMPAT in "${API}"
++ echo '########## 试 hvigor=5.5.0  compatibleSdkVersion=13 ##########'
++ cat
+########## 试 hvigor=5.5.0  compatibleSdkVersion=13 ##########
++ cat
++ rm -rf entry/build
++ hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
+Installing dependencies...
+ ERR_PNPM_NO_MATCHING_VERSION  No matching version found for @ohos/hvigor@5.5.0
+
+This error happened while installing a direct dependency of /root/.hvigor/project_caches/f8087e59fd95af1ae29e8fcb7ff1a3dc/workspace
+
+The latest release of @ohos/hvigor is "6.26.8".
+
+Other releases are:
+  * legacy: 6.24.5
+
+If you need the full list of all 82 published versions run "$ pnpm view @ohos/hvigor versions".
+Error: /root/.hvigor/wrapper/tools/node_modules/.bin/pnpm install execute failed.See above for details.
++ find entry/build -name '*.hap'
++ grep -q .
++ for HV in 5.14.2 5.13.0 5.11.1 5.9.2 5.7.0 5.5.0 5.2.0 5.15.5 5.17.6 5.19.8
++ for COMPAT in "${API}"
+########## 试 hvigor=5.2.0  compatibleSdkVersion=13 ##########
++ echo '########## 试 hvigor=5.2.0  compatibleSdkVersion=13 ##########'
++ cat
++ cat
++ rm -rf entry/build
++ hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
+Installing dependencies...
+ ERR_PNPM_NO_MATCHING_VERSION  No matching version found for @ohos/hvigor@5.2.0
+
+This error happened while installing a direct dependency of /root/.hvigor/project_caches/f8087e59fd95af1ae29e8fcb7ff1a3dc/workspace
+
+The latest release of @ohos/hvigor is "6.26.8".
+
+Other releases are:
+  * legacy: 6.24.5
+
+If you need the full list of all 82 published versions run "$ pnpm view @ohos/hvigor versions".
+Error: /root/.hvigor/wrapper/tools/node_modules/.bin/pnpm install execute failed.See above for details.
++ find entry/build -name '*.hap'
++ grep -q .
++ for HV in 5.14.2 5.13.0 5.11.1 5.9.2 5.7.0 5.5.0 5.2.0 5.15.5 5.17.6 5.19.8
++ for COMPAT in "${API}"
++ echo '########## 试 hvigor=5.15.5  compatibleSdkVersion=13 ##########'
++ cat
+########## 试 hvigor=5.15.5  compatibleSdkVersion=13 ##########
++ cat
++ rm -rf entry/build
++ hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
+Installing dependencies...
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +2 -2
+++--
+Progress: resolved 2, reused 0, downloaded 0, added 0
+Progress: resolved 2, reused 0, downloaded 1, added 0
+Progress: resolved 2, reused 0, downloaded 1, added 1
+Progress: resolved 2, reused 0, downloaded 2, added 1
+Progress: resolved 2, reused 0, downloaded 2, added 2, done
+
+dependencies:
+- @ohos/hvigor 5.7.0
++ @ohos/hvigor 5.15.5 (6.26.8 is available)
+- @ohos/hvigor-ohos-plugin 5.7.0
++ @ohos/hvigor-ohos-plugin 5.15.5 (6.26.8 is available)
+
+Done in 4.9s
+Hvigor install success.
+> hvigor [91mERROR: The project structure and configuration need to be upgraded before use.
+	 Detail: Use the migration tool to update the project structure and configuration with Deveco Studio, or refer to the guide to manually update the project structure and configuration.[39m
+> hvigor [91mERROR: BUILD FAILED in 1 s 358 ms [39m
++ find entry/build -name '*.hap'
++ grep -q .
+########## 试 hvigor=5.17.6  compatibleSdkVersion=13 ##########
++ for HV in 5.14.2 5.13.0 5.11.1 5.9.2 5.7.0 5.5.0 5.2.0 5.15.5 5.17.6 5.19.8
++ for COMPAT in "${API}"
++ echo '########## 试 hvigor=5.17.6  compatibleSdkVersion=13 ##########'
++ cat
++ cat
++ rm -rf entry/build
++ hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
+Installing dependencies...
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +2 -2
+++--
+Progress: resolved 2, reused 0, downloaded 0, added 0
+Progress: resolved 2, reused 0, downloaded 1, added 0
+Progress: resolved 2, reused 0, downloaded 1, added 1
+Progress: resolved 2, reused 0, downloaded 2, added 1
+Progress: resolved 2, reused 0, downloaded 2, added 2, done
+
+dependencies:
+- @ohos/hvigor 5.15.5
++ @ohos/hvigor 5.17.6 (6.26.8 is available)
+- @ohos/hvigor-ohos-plugin 5.15.5
++ @ohos/hvigor-ohos-plugin 5.17.6 (6.26.8 is available)
+
+Done in 4.8s
+Hvigor install success.
+> hvigor [91mERROR: The project structure and configuration need to be upgraded before use.
+	 Detail: Use the migration tool to update the project structure and configuration with Deveco Studio, or refer to the guide to manually update the project structure and configuration.[39m
+> hvigor [91mERROR: BUILD FAILED in 1 s 309 ms [39m
++ find entry/build -name '*.hap'
++ grep -q .
++ for HV in 5.14.2 5.13.0 5.11.1 5.9.2 5.7.0 5.5.0 5.2.0 5.15.5 5.17.6 5.19.8
++ for COMPAT in "${API}"
++ echo '########## 试 hvigor=5.19.8  compatibleSdkVersion=13 ##########'
+########## 试 hvigor=5.19.8  compatibleSdkVersion=13 ##########
++ cat
++ cat
++ rm -rf entry/build
++ hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
+Installing dependencies...
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +2 -2
+++--
+Progress: resolved 2, reused 0, downloaded 0, added 0
+Progress: resolved 2, reused 0, downloaded 1, added 0
+Progress: resolved 2, reused 0, downloaded 2, added 1
+Progress: resolved 2, reused 0, downloaded 2, added 2, done
+
+dependencies:
+- @ohos/hvigor 5.17.6
++ @ohos/hvigor 5.19.8 (6.26.8 is available)
+- @ohos/hvigor-ohos-plugin 5.17.6
++ @ohos/hvigor-ohos-plugin 5.19.8 (6.26.8 is available)
+
+Done in 4.7s
+Hvigor install success.
+> hvigor [91mERROR: [31m00303024 Configuration Error
+Error Message: The project structure and configuration need to be upgraded before use.
+
+* Try the following:
+  > Use the migration tool to update the project structure and configuration with Deveco Studio, or refer to the guide to manually update the project structure and configuration.
+[39m[39m
+> hvigor [91mERROR: BUILD FAILED in 1 s 307 ms [39m
++ find entry/build -name '*.hap'
++ grep -q .
++ echo '===== 产物 ====='
+===== 产物 =====
++ find entry/build -name '*.hap'
++ sort
+find: ‘entry/build’: No such file or directory
