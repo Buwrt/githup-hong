@@ -66,7 +66,7 @@ jobs:
           API=$(grep -oE '"apiVersion"[[:space:]]*:[[:space:]]*"?[0-9]+' "$SDK/ets/oh-uni-package.json" | grep -oE '[0-9]+' | tail -1)
           [ -z "$API" ] && API=12
           MAJOR=$(echo "$VER" | cut -d. -f1-2).0
-          echo "SDK版本=$VER  API=$API  候选=${MAJOR}(${API})"
+          echo "SDK版本=$VER  API=$API  候选compileSdk/compatibleSdk=$API"
 
           for HV in 5.19.8 5.17.6 5.15.5 5.14.2; do
             # compatibleSdkVersion 在新版 hvigor 里必须是**整数**（API 号），
@@ -94,6 +94,7 @@ jobs:
               "products": [
                 {
                   "name": "default",
+                  "compileSdkVersion": $COMPAT,
                   "compatibleSdkVersion": $COMPAT,
                   "runtimeOS": "OpenHarmony",
                   "buildOption": { "strictMode": { "caseSensitiveCheck": true, "useNormalizedOHMUrl": true } }
