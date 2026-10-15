@@ -53,6 +53,11 @@ jobs:
           set -x
           source /etc/profile 2>/dev/null || true
           cd /src
+          # 工程级 hvigorfile 缺失时现场补一份（正常情况仓库里已有）
+          if [ ! -f /src/hvigorfile.ts ]; then
+            printf "%s\n" "import { appTasks } from '@ohos/hvigor-ohos-plugin';" \
+              "export default { system: appTasks, plugins: [] }" > /src/hvigorfile.ts
+          fi
           SDK=/opt/command-line-tools/sdk/default/openharmony
           echo "sdk.dir=$SDK" > local.properties
           echo "===== SDK 元数据 ====="
