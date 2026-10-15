@@ -13,7 +13,9 @@
 
 ## 怎么跑
 
-前置条件：电脑装了 **Node.js 18 或更高版本**（[nodejs.org](https://nodejs.org)，一路下一步）。
+**Windows 用户：直接用 `githup.exe`（见 `build-exe/`），双击就跑，不用装 Node。**
+
+其它系统，或者你想直接看源码跑：电脑装 **Node.js 18 或更高版本**（[nodejs.org](https://nodejs.org)）。
 
 - **Windows**：双击 `启动-githup.bat`
 - **macOS / Linux**：终端里 `./启动-githup.sh`，或直接 `node server.js`
@@ -22,7 +24,9 @@
 
 停止使用：在服务窗口按 `Ctrl+C`。
 
-> 这是一个「本地服务 + 浏览器」的形态，不是一个独立窗口的 exe。想做成独立窗口见文末「下一步」。
+### exe 版
+
+`build-exe/` 目录里是把这套东西打成单个 `githup.exe` 的全部脚本（Node 官方单文件可执行机制，不含 Electron）。exe 约 71 MB——它本身就是一个完整的 Node 运行时，好处是**用户电脑上什么都不用装**。构建步骤见 `build-exe/README.md`。
 
 ---
 
@@ -82,14 +86,6 @@ logs/                  运行日志
 
 ---
 
-## 下一步：做成独立窗口
+## 打包成 exe
 
-现在的形态是「本地服务 + 系统浏览器」。如果更想要一个独立窗口、能固定到任务栏的 exe，最常见的是套一层 Electron：主进程里 `require('./server.js')` 起服务，窗口直接 `loadURL('http://127.0.0.1:8733/')` 即可，前端与桥接代码都不用动。
-
-```bash
-npm i -D electron
-npm i -D electron-builder
-npx electron-builder --win      # 产出 Windows 安装包
-```
-
-（本机环境无法下载 Electron 二进制，这条路径没有实际跑过，仅作参考。）
+见 `build-exe/README.md`。要点：用 Node 官方的 SEA（单文件可执行）把前端与服务端塞进官方 node.exe，产出单个 `githup.exe`，71 MB，双击即用，不需要 Electron，也不需要用户装 Node。

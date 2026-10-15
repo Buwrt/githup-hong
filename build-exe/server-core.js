@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /* ============================================================
  * githup 桌面版 —— 本地服务端（零第三方依赖）
  *
@@ -22,16 +21,60 @@ const crypto = require('crypto');
 const zlib = require('zlib');
 const { execFile } = require('child_process');
 
-const ROOT = __dirname;
+/* ---------------- 运行形态 ----------------
+ *
+ * 两种形态共用这一份代码：
+ *   · 打包成 exe（Node 单文件可执行）：前端文件已随包内嵌在
+ *     globalThis.__GH_WEB_FILES__ 里，数据目录建在 exe 旁边；
+ *   · 开发态（node server.js）：前端从磁盘 web/ 读，数据建在项目下。
+ */
+const SEA = (function () {
+  try { return require('node:sea').isSea(); } catch (e) { return false; }
+})();
+const EMBED = globalThis.__GH_WEB_FILES__ || null;
+const APP_VER = '1.2.15';
+
+/* 数据放哪：先是 exe 旁边，写不进去（比如放在 Program Files 下）
+ * 就退回用户目录。直接抛异常的话，用户双击 exe 会看到一个一闪而过的窗口，
+ * 什么线索都没有。 */
+function pickRoot() {
+  const candidates = [];
+  if (SEA) candidates.push(path.dirname(process.execPath));
+  else candidates.push(__dirname);
+  try {
+    candidates.push(path.join(os.homedir(), 'githup-desktop'));
+    candidates.push(path.join(os.tmpdir(), 'githup-desktop'));
+  } catch (e) { /* homedir 取不到就算了 */ }
+  for (const c of candidates) {
+    try {
+      fs.mkdirSync(c, { recursive: true });
+      const probe = path.join(c, '.write-test');
+      fs.writeFileSync(probe, '1');
+      fs.unlinkSync(probe);
+      return c;
+    } catch (e) { /* 这个位置不行，试下一个 */ }
+  }
+  return candidates[0];
+}
+
+const ROOT = pickRoot();
 const WEB = path.join(ROOT, 'web');
 const DATA = path.join(ROOT, 'data');
 const DOWNLOADS = path.join(ROOT, 'downloads');
 const LOGS = path.join(ROOT, 'logs');
 
+/** 从内嵌资源取文件；没打包或没有这个文件就返回 null */
+function embedded(rel) {
+  if (!EMBED) return null;
+  const k = String(rel).replace(/^\/+/, '');
+  const v = EMBED[k];
+  return v == null ? null : Buffer.from(v, 'base64');
+}
+
 /* ---------------- 目录与密钥 ---------------- */
 
 for (const d of [DATA, DOWNLOADS, LOGS]) {
-  if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+  try { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); } catch (e) { /* 建不出来也别崩 */ }
 }
 
 /**
@@ -241,7 +284,7 @@ async function handleApi(req, res, urlPath) {
       token: store.token || '',
       prefs: store.prefs || {},
       totp: store.totp || '',
-      version: '1.2.15-desktop',
+      version: APP_VER + '-desktop',
       platform: process.platform
     });
   }
@@ -380,13 +423,24 @@ async function handleApi(req, res, urlPath) {
     }
   }
 
-  /* --- keystore 生成（云端打包 APK 用，依赖本机 openssl） --- */
+  /* --- keystore 生成（云端打包 APK 用） ---
+   *
+   * 首选纯 Node 实现：不依赖任何外部程序，所以 Windows 上也能出 keystore
+   * （Windows 没有 openssl，只有这一条路走得通）。
+   * 万一 Node 侧出了岔子，再退回 openssl —— 那条路在 Linux / macOS 上可用。
+   */
   if (urlPath === '/api/keystore' && req.method === 'POST') {
     const o = JSON.parse((await readBody(req)).toString('utf8') || '{}');
     const alias = String(o.alias || 'githup');
     const pass = String(o.pass || '');
     const seed = String(o.seed || '');
     if (!pass) return sendJson(res, 200, { ok: false, error: '缺少口令' });
+    try {
+      const p12 = buildPkcs12(alias, pass);
+      return sendJson(res, 200, { ok: true, b64: p12.toString('base64'), engine: 'node' });
+    } catch (eNode) {
+      /* 落到下面的 openssl 分支 */
+    }
     const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'githup-ks-'));
     const p12 = path.join(tmp, 'out.p12');
     const args = ['req', '-x509', '-newkey', 'rsa:2048', '-keyout', path.join(tmp, 'k.pem'),
@@ -502,7 +556,7 @@ function desktopHead() {
     token: store.token || '',
     prefs: store.prefs || {},
     totp: store.totp || '',
-    version: '1.2.15-desktop',
+    version: APP_VER + '-desktop',
     platform: process.platform,
     desktop: true
   }).replace(/</g, '\\u003c');
@@ -514,7 +568,29 @@ function desktopHead() {
 function serveStatic(req, res, urlPath) {
   let rel = decodeURIComponent(urlPath.split('?')[0]);
   if (rel === '/' || rel === '') rel = '/index.html';
-  const file = path.join(WEB, path.normalize(rel).replace(/^([/\\])+/, ''));
+  const clean = path.normalize(rel).replace(/^([/\\])+/, '').replace(/\\/g, '/');
+  // 目录穿越防护
+  if (clean.split('/').indexOf('..') >= 0) {
+    res.writeHead(403); res.end('forbidden'); return;
+  }
+
+  /* 打包成 exe 后，前端文件在内存里 —— 直接发出去，不落磁盘 */
+  const mem = embedded(clean);
+  if (mem) {
+    const ext = path.extname(clean).toLowerCase();
+    const type = MIME[ext] || 'application/octet-stream';
+    let body = mem;
+    if (ext === '.html') body = Buffer.from(String(mem).replace('</head>', desktopHead() + '</head>'), 'utf8');
+    res.writeHead(200, {
+      'Content-Type': type,
+      'Content-Length': body.length,
+      'Cache-Control': 'no-cache'
+    });
+    res.end(body);
+    return;
+  }
+
+  const file = path.join(WEB, clean);
   // 目录穿越防护：解析后必须仍在 WEB 之内
   if (!file.startsWith(WEB)) {
     res.writeHead(403); res.end('forbidden'); return;
@@ -580,22 +656,51 @@ server.on('error', (e) => {
   }
 });
 
+/**
+ * 控制台只输出 ASCII。
+ *
+ * Windows 控制台默认代码页是 936（GBK），Node 按 UTF-8 写出来的中文会
+ * 变成乱码 —— 与其让用户看一堆问号，不如这里只写英文和数字。中文说明
+ * 全部放在网页里（浏览器是 UTF-8，显示正常）。
+ */
 server.listen(PORT, HOST, () => {
   const actual = server.address().port;
   const url = 'http://' + HOST + ':' + actual + '/';
   console.log('');
-  console.log('  githup 桌面版已启动');
-  console.log('  --------------------------------');
-  console.log('  地址：' + url);
-  console.log('  数据：' + DATA);
-  console.log('  下载：' + DOWNLOADS);
-  console.log('  停止：在本窗口按 Ctrl+C');
+  console.log('  githup desktop  (v' + APP_VER + ')');
+  console.log('  ----------------------------------------');
+  console.log('  running : ' + url);
+  console.log('  data    : ' + DATA);
+  console.log('  downloads: ' + DOWNLOADS);
+  console.log('');
+  console.log('  The browser should open automatically.');
+  console.log('  If not, visit the address above.');
+  console.log('  Press Ctrl+C here to stop.');
   console.log('');
   if (process.env.GITHUP_NO_OPEN !== '1') {
-    const cmd = process.platform === 'win32' ? ['cmd', ['/c', 'start', url]]
-      : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
-    try { execFile(cmd[0], cmd[1], () => { }); } catch (e) { /* 打不开也无妨，手动访问即可 */ }
+    openBrowser(url);
   }
 });
+
+function openBrowser(url) {
+  try {
+    if (process.platform === 'win32') {
+      // 用 start 交给系统默认浏览器，且不弹出多余的 cmd 窗口
+      execFile('cmd', ['/c', 'start', '', url], { windowsHide: true }, () => { });
+    } else if (process.platform === 'darwin') {
+      execFile('open', [url], () => { });
+    } else {
+      execFile('xdg-open', [url], () => { });
+    }
+  } catch (e) { /* 打不开也无妨，看窗口里的地址手动访问即可 */ }
+}
+
+/* 打包成 exe 时，别让窗口一闪而过：按 Ctrl+C 才退出 */
+if (SEA) {
+  process.on('SIGINT', () => {
+    console.log('\n  stopped.');
+    process.exit(0);
+  });
+}
 
 void zlib;
