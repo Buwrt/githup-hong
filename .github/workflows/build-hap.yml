@@ -101,7 +101,7 @@ jobs:
       - name: 拉鸿蒙 CI 镜像
         run: |
           set -x
-          for tag in latest v5.1.0.849 v5.0.5.200; do
+          for tag in v5.0.5.200 v5.1.0.849 latest; do
             if docker pull "looha/oharmony-ci:${tag}" 2>&1 | tail -3; then
               echo "IMAGE=looha/oharmony-ci:${tag}" >> "$GITHUB_ENV"; break
             fi
@@ -120,6 +120,13 @@ jobs:
             ls /root 2>/dev/null
             echo "=== 找 SDK ==="
             find / -maxdepth 7 -type d \( -name "toolchains" -o -name "ets" \) 2>/dev/null | head -20
+            echo "=== SDK 内容 ==="
+            ls /opt/command-line-tools/sdk/default/openharmony 2>/dev/null
+            ls /opt/command-line-tools/sdk/default/openharmony/ets 2>/dev/null
+            echo "=== hvigorw 版本 ==="
+            hvigorw --version 2>&1 | head -3
+            echo "=== 可用插件版本 ==="
+            npm view @ohos/hvigor-ohos-plugin versions --registry=https://repo.harmonyos.com/npm/ 2>&1 | tail -5
             echo "=== local.properties / sdk.dir ==="
             env | grep -i -E "ohos|sdk|command" || true
           ' 2>&1 | tee -a "$GITHUB_WORKSPACE/ci-build.log"
