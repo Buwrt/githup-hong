@@ -1,26 +1,24 @@
 # ============================================================
 # githup-hong · 自动构建 HAP 并发布到 Release
+# ============================================================
 #
 # 为什么要有这条流水线 ——
 #   本工程的维护环境拿不到 HarmonyOS SDK（华为源在部分网络下不可达），
-#   而 HAP 只能由官方工具链（hvigor + OHOS SDK）编译出来。
-#   GitHub Actions 的 runner 出网不受限，所以把编译搬到 CI 上：
-#   推代码即构建，产出物自动挂到 Release。
+#   HAP 只能由官方工具链（hvigor + OHOS SDK）编译出来。
+#   GitHub Actions 的 runner 出网不受限，所以把编译搬到 CI：
+#   推代码即构建，产物自动挂到 Release。
 #
-# ══ 签名这件事务必看清楚 ══
-#   HarmonyOS NEXT（纯血鸿蒙）真机只认【华为 AGC 颁发的证书链】：
-#     · .p12  本地生成的密钥库（私钥）
-#     · .cer  华为用它的私钥签过的开发者证书
-#     · .p7b  绑定了包名与设备的 Provision Profile
-#   缺任何一样，装到真机上都会被系统拒（签名校验不过）。
+# 工具链怎么来的 ——
+#   华为的 Command Line Tools 官方下载页在国内网络常常取不到，
+#   这里改用社区维护的鸿蒙 CI 容器镜像（Docker Hub，runner 可达），
+#   镜像里已经装好了 ohpm / hvigorw / SDK 工具链。
 #
-#   因此流水线分三档，按有没有配 Secrets 自动降级：
-#     ① 配了 HARMONY_* 六个 Secrets  → 用你的华为证书签，产出【真机可装】的 HAP
-#     ② 没配                          → 用 SDK 自带的 OpenHarmony 密钥自签，
-#                                       产出【可安装到 OpenHarmony 设备 / 模拟器】的 HAP
-#     ③ 自签也失败                    → 仍然上传【未签名】HAP，供你自己拿去签
-#
-#   三种产物都在 Release 里，文件名写着呢，不会混。
+# ══ 签名 ══
+#   HarmonyOS NEXT 真机只认华为 AGC 颁发的证书链（p12 + cer + p7b）。
+#   按有没有配 Secrets 分三档：
+#     ① 配了 HARMONY_* Secrets → 用你的华为证书签，【真机可装】
+#     ② 没配                   → SDK 自带密钥自签，【OpenHarmony 设备/模拟器可装】
+#     ③ 自签也失败             → 仍上传【未签名】HAP，供你自己拿去签
 # ============================================================
 
 name: Build HAP
@@ -33,7 +31,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     permissions:
       contents: write
 
@@ -41,99 +39,27 @@ jobs:
       - name: 检出源码
         uses: actions/checkout@v4
 
-      - name: 装 JDK 17
+      - name: 装 JDK 17（签名工具需要）
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: 装 Node 20
+      - name: 装 Node 20（hvigor 是 Node 程序）
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      # ---------------------------------------------------------
-      # 1) 取 OpenHarmony 公开 SDK（Linux 版）
-      #    纯血鸿蒙目标 API 12，对应 OpenHarmony 5.0.x。
-      #    逐个试几个版本，谁在就用谁 —— 镜像站会下架旧版本。
-      # ---------------------------------------------------------
-      - name: 下载 OHOS SDK
+      - name: 准备日志
         run: |
-          set -e
-          mkdir -p /opt/ohos-sdk/dl
-          cd /opt/ohos-sdk/dl
-          for v in 5.0.0 5.0.1 5.0.2 5.0.3 5.1.0 6.0-Release; do
-            url="https://repo.huaweicloud.com/openharmony/os/${v}/ohos-sdk-windows_linux-public.tar.gz"
-            echo "试 ${url}"
-            code=$(curl -sL -o sdk.tgz -w '%{http_code}' --max-time 600 "$url")
-            if [ "$code" = "200" ] && file sdk.tgz | grep -qi gzip; then
-              echo "✅ 取到 ${v}"; echo "SDK_VER=${v}" >> "$GITHUB_ENV"; break
-            fi
-            echo "  不可用（$code），换下一个"
-          done
-          ls -lh sdk.tgz
+          : > "$GITHUB_WORKSPACE/ci-build.log"
+          echo "run=$GITHUB_RUN_ID" >> "$GITHUB_WORKSPACE/ci-build.log"
 
-      - name: 解压 SDK
-        run: |
-          set -e
-          cd /opt/ohos-sdk/dl
-          tar -zxf sdk.tgz
-          ls
-          # 外层解开是 linux/ 与 windows/，linux/ 里是一堆 zip
-          if [ -d linux ]; then SRC=/opt/ohos-sdk/dl/linux; else SRC=/opt/ohos-sdk/dl; fi
-          echo "SRC=$SRC"
-          ls "$SRC"
-          mkdir -p /opt/ohos-sdk/base
-          cd "$SRC"
-          for z in *.zip; do
-            echo "解压 $z"
-            unzip -o -q "$z" -d /opt/ohos-sdk/base || echo "  （跳过 $z）"
-          done
-          echo "---- SDK 组件 ----"
-          ls /opt/ohos-sdk/base
-
-      - name: 摆成 hvigor 认得的目录结构
-        run: |
-          set -e
-          cd /opt/ohos-sdk
-          # DevEco 的 SDK 是「<sdk>/<api版本>/<组件>」；公开 SDK 解出来是平铺的。
-          # 两种布局都摆一份，hvigor 找哪种都能找着。
-          mkdir -p base/12
-          for d in ets js native toolchains previewer hms; do
-            if [ -d "base/$d" ] && [ ! -e "base/12/$d" ]; then
-              ln -s "/opt/ohos-sdk/base/$d" "base/12/$d"
-            fi
-          done
-          echo "sdk.dir=/opt/ohos-sdk/base" >> "$GITHUB_ENV"
-          echo "OHOS_SDK_HOME=/opt/ohos-sdk/base" >> "$GITHUB_ENV"
-          echo "DEVECO_SDK_HOME=/opt/ohos-sdk/base" >> "$GITHUB_ENV"
-          echo "---- 12/ ----"; ls -l base/12
-          echo "---- toolchains/lib ----"; ls base/toolchains/lib 2>/dev/null | head -20
-
-      # ---------------------------------------------------------
-      # 2) 装 hvigor
-      #    @ohos 作用域的包只在华为自己的 npm 源上。
-      # ---------------------------------------------------------
-      - name: 装 hvigor 与 ohos 插件
-        run: |
-          set -e
-          npm config set @ohos:registry https://repo.harmonyos.com/npm/
-          npm config set registry https://repo.huaweicloud.com/repository/npm/
-          npm install --no-audit --no-fund \
-            @ohos/hvigor@5.0.0 @ohos/hvigor-ohos-plugin@5.0.0
-          ls node_modules/.bin/ | head
-          ./node_modules/.bin/hvigor --version || true
-
-      # ---------------------------------------------------------
-      # 3) 改写成 CI 用的构建配置
-      #    本地那份 build-profile.json5 里 product 挂着 signingConfig:"default"，
-      #    CI 上没有 DevEco 自动签名，会把构建卡在「找不到签名配置」。
-      #    这里换成不签名、runtimeOS=OpenHarmony 的等价配置 —— 只影响 CI，
-      #    仓库里那份不动。
-      # ---------------------------------------------------------
+      # -------------------------------------------------------
+      # CI 专用构建配置：不签名 + runtimeOS 用容器里的 SDK 能对上的那套
+      # -------------------------------------------------------
       - name: 生成 CI 构建配置
         run: |
-          set -e
           cat > build-profile.json5 <<'JSON'
           {
             "app": {
@@ -167,148 +93,157 @@ jobs:
             ]
           }
           JSON
-          echo "sdk.dir=/opt/ohos-sdk/base" > local.properties
-          cat local.properties
+          cat build-profile.json5
 
-      # ---------------------------------------------------------
-      # 4) 编译
-      # ---------------------------------------------------------
+      # -------------------------------------------------------
+      # 拉鸿蒙 CI 镜像并编译
+      # -------------------------------------------------------
+      - name: 拉鸿蒙 CI 镜像
+        run: |
+          set -x
+          for tag in latest v5.1.0.849 v5.0.5.200; do
+            if docker pull "looha/oharmony-ci:${tag}" 2>&1 | tail -3; then
+              echo "IMAGE=looha/oharmony-ci:${tag}" >> "$GITHUB_ENV"; break
+            fi
+          done
+          echo "IMAGE=${IMAGE}"
+
+      - name: 探查镜像里的工具链
+        run: |
+          docker run --rm --entrypoint bash "${IMAGE}" -lc '
+            source /etc/profile 2>/dev/null || true
+            echo "=== which ==="
+            command -v hvigorw; command -v ohpm; command -v sdkmgr; command -v sdkmanager; command -v java; command -v node
+            echo "=== 可能装工具链的位置 ==="
+            ls / 2>/dev/null
+            ls /opt 2>/dev/null
+            ls /root 2>/dev/null
+            echo "=== 找 SDK ==="
+            find / -maxdepth 7 -type d \( -name "toolchains" -o -name "ets" \) 2>/dev/null | head -20
+            echo "=== local.properties / sdk.dir ==="
+            env | grep -i -E "ohos|sdk|command" || true
+          ' 2>&1 | tee -a "$GITHUB_WORKSPACE/ci-build.log"
+
       - name: 编译 HAP
         id: build
         run: |
-          set -o pipefail
-          ./node_modules/.bin/hvigor assembleHap \
-            --mode module -p product=default -p buildMode=release \
-            --no-daemon 2>&1 | tee build.log
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/src" -w /src \
+            --entrypoint bash "${IMAGE}" -lc '
+            set -x
+            source /etc/profile 2>/dev/null || true
+            export TOOL_HOME=${TOOL_HOME:-/home/ohos/command-line-tools}
+            export PATH="$TOOL_HOME/bin:$TOOL_HOME/ohpm/bin:$PATH"
+            command -v hvigorw || find / -maxdepth 6 -name hvigorw 2>/dev/null | head -3
+            # 让 hvigor 找得到 SDK
+            SDKDIR=$(dirname $(find / -maxdepth 7 -type d -name toolchains 2>/dev/null | head -1))
+            echo "SDKDIR=$SDKDIR"
+            [ -n "$SDKDIR" ] && echo "sdk.dir=$SDKDIR" > local.properties
+            cat local.properties 2>/dev/null
+            hvigorw clean --no-daemon 2>&1 | tail -20
+            hvigorw assembleHap --mode module -p product=default -p buildMode=release --no-daemon
+          ' 2>&1 | tee -a "$GITHUB_WORKSPACE/ci-build.log"
           echo "===== 产物 ====="
-          find entry/build -name "*.hap" -o -name "*.hsp" | sort
+          find . -name "*.hap" | sort
 
-      - name: 上传未签名产物（保底，编译成功就留一份）
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: hap-output
-          path: entry/build/**/outputs/**/*.hap
-          if-no-files-found: warn
-
-      # ---------------------------------------------------------
-      # 5) 签名
-      #    ① 优先用仓库 Secrets 里的华为证书（真机可装）
-      #    ② 没有就用 SDK 自带密钥自签（OpenHarmony 设备可装）
-      # ---------------------------------------------------------
+      # -------------------------------------------------------
+      # 签名
+      # -------------------------------------------------------
       - name: 签名 HAP
         id: sign
+        if: always()
         run: |
-          set -e
-          LIB=/opt/ohos-sdk/base/toolchains/lib
-          UNSIGNED=$(find entry/build -name "*unsigned.hap" | head -1)
-          if [ -z "$UNSIGNED" ]; then
-            UNSIGNED=$(find entry/build -name "*.hap" | head -1)
-          fi
+          UNSIGNED=$(find "$GITHUB_WORKSPACE" -name "*.hap" | head -1)
           echo "待签: $UNSIGNED"
-          if [ -z "$UNSIGNED" ]; then echo "没有产物，跳过签名"; exit 0; fi
-          mkdir -p out
+          if [ -z "$UNSIGNED" ]; then echo "没有产物"; exit 0; fi
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp "$UNSIGNED" "$GITHUB_WORKSPACE/out/githup-hong-unsigned.hap"
+          # 签名工具在镜像里，把 jar 和自带密钥拷出来
+          docker run --rm -v "$GITHUB_WORKSPACE/out:/out" --entrypoint bash "${IMAGE}" -lc '
+            set -x
+            LIB=$(find / -name "hap-sign-tool.jar" 2>/dev/null | head -1)
+            echo "LIB=$LIB"
+            if [ -z "$LIB" ]; then echo "镜像里没有签名工具"; exit 1; fi
+            cp "$LIB" /out/hap-sign-tool.jar
+            D=$(dirname "$LIB")
+            cp "$D"/OpenHarmony*.p12 "$D"/OpenHarmony*.pem "$D"/Unsgned*.json /out/ 2>/dev/null || true
+          ' 2>&1 | tee -a "$GITHUB_WORKSPACE/ci-build.log"
+          cd "$GITHUB_WORKSPACE/out"
+          ls -l
 
-          if [ -n "${{ secrets.HARMONY_P12_BASE64 }}" ] \
-             && [ -n "${{ secrets.HARMONY_CER_BASE64 }}" ] \
-             && [ -n "${{ secrets.HARMONY_P7B_BASE64 }}" ]; then
-            echo "✅ 检测到华为证书 Secrets，走正式签名（真机可装）"
-            cd out
+          if [ -n "${{ secrets.HARMONY_P12_BASE64 }}" ] && [ -n "${{ secrets.HARMONY_CER_BASE64 }}" ] && [ -n "${{ secrets.HARMONY_P7B_BASE64 }}" ]; then
+            echo "✅ 检测到华为证书 Secrets，正式签名（真机可装）"
             echo "${{ secrets.HARMONY_P12_BASE64 }}" | base64 -d > app.p12
             echo "${{ secrets.HARMONY_CER_BASE64 }}" | base64 -d > app.cer
             echo "${{ secrets.HARMONY_P7B_BASE64 }}" | base64 -d > app.p7b
-            java -jar "$LIB/hap-sign-tool.jar" sign-app \
-              -mode localSign \
-              -keyAlias "${{ secrets.HARMONY_KEY_ALIAS }}" \
-              -signAlg SHA256withECDSA \
-              -appCertFile app.cer \
-              -profileFile app.p7b \
-              -inFile "../$UNSIGNED" \
-              -keystoreFile app.p12 \
+            java -jar hap-sign-tool.jar sign-app -mode localSign \
+              -keyAlias "${{ secrets.HARMONY_KEY_ALIAS }}" -signAlg SHA256withECDSA \
+              -appCertFile app.cer -profileFile app.p7b \
+              -inFile githup-hong-unsigned.hap -keystoreFile app.p12 \
               -outFile githup-hong-signed.hap \
-              -keyPwd "${{ secrets.HARMONY_KEY_PWD }}" \
-              -keystorePwd "${{ secrets.HARMONY_STORE_PWD }}"
+              -keyPwd "${{ secrets.HARMONY_KEY_PWD }}" -keystorePwd "${{ secrets.HARMONY_STORE_PWD }}"
             echo "KIND=official" >> "$GITHUB_ENV"
-          else
-            echo "⚠️ 没有华为证书 Secrets，走 SDK 自带密钥自签"
-            cd out
-            # 自带密钥库：别名与口令是公开的 OpenHarmony 默认值
-            java -jar "$LIB/hap-sign-tool.jar" sign-profile \
-              -mode localSign \
-              -keyAlias "openharmony application profile release" \
-              -signAlg SHA256withECDSA \
-              -profileCertFile "$LIB/OpenHarmonyProfileRelease.pem" \
-              -inFile "$LIB/UnsgnedReleasedProfileTemplate.json" \
-              -keystoreFile "$LIB/OpenHarmony.p12" \
-              -outFile app-profile.p7b \
+          elif [ -f hap-sign-tool.jar ]; then
+            echo "⚠️ 没有华为证书 Secrets，用 SDK 自带密钥自签"
+            java -jar hap-sign-tool.jar sign-profile -mode localSign \
+              -keyAlias "openharmony application profile release" -signAlg SHA256withECDSA \
+              -profileCertFile OpenHarmonyProfileRelease.pem \
+              -inFile UnsgnedReleasedProfileTemplate.json \
+              -keystoreFile OpenHarmony.p12 -outFile app-profile.p7b \
               -keyPwd 123456 -keystorePwd 123456
-            # 应用密钥：现场生成一把自签的，导出证书给自己用
-            keytool -genkeypair -alias ohos-app \
-              -keyalg EC -groupname secp256r1 -sigalg SHA256withECDSA \
-              -dname "CN=githup-hong, OU=Buwrt, O=Buwrt, L=, S=, C=CN" \
-              -keystore app.p12 -storetype pkcs12 \
-              -storepass 123456 -keypass 123456 -validity 9125
-            keytool -exportcert -alias ohos-app -keystore app.p12 \
-              -storepass 123456 -rfc -file app.cer
-            java -jar "$LIB/hap-sign-tool.jar" sign-app \
-              -mode localSign \
-              -keyAlias ohos-app \
-              -signAlg SHA256withECDSA \
-              -appCertFile app.cer \
-              -profileFile app-profile.p7b \
-              -inFile "../$UNSIGNED" \
-              -keystoreFile app.p12 \
-              -outFile githup-hong-signed.hap \
-              -keyPwd 123456 -keystorePwd 123456
+            keytool -genkeypair -alias ohos-app -keyalg EC -groupname secp256r1 \
+              -sigalg SHA256withECDSA -dname "CN=githup-hong, O=Buwrt, C=CN" \
+              -keystore app.p12 -storetype pkcs12 -storepass 123456 -keypass 123456 -validity 9125
+            keytool -exportcert -alias ohos-app -keystore app.p12 -storepass 123456 -rfc -file app.cer
+            java -jar hap-sign-tool.jar sign-app -mode localSign \
+              -keyAlias ohos-app -signAlg SHA256withECDSA \
+              -appCertFile app.cer -profileFile app-profile.p7b \
+              -inFile githup-hong-unsigned.hap -keystoreFile app.p12 \
+              -outFile githup-hong-signed.hap -keyPwd 123456 -keystorePwd 123456
             echo "KIND=selfsigned" >> "$GITHUB_ENV"
           fi
           ls -lh
-          cp "../$UNSIGNED" githup-hong-unsigned.hap
 
-      - name: 上传签名产物
-        if: steps.sign.outcome == 'success'
+      - name: 上传产物
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hap-signed
+          name: hap
           path: out/*.hap
           if-no-files-found: warn
 
-      - name: 算校验值
-        id: hash
-        run: |
-          cd out || exit 0
-          for f in *.hap; do
-            echo "$f  $(stat -c%s "$f") 字节  sha256=$(sha256sum "$f" | cut -d' ' -f1)"
-          done
-          echo "SUMMARY<<EOF" >> "$GITHUB_ENV"
-          for f in *.hap; do
-            echo "$f|$(stat -c%s "$f")|$(sha256sum "$f" | cut -d' ' -f1)" >> "$GITHUB_ENV"
-          done
-          echo "EOF" >> "$GITHUB_ENV"
-
-      # ---------------------------------------------------------
-      # 6) 发到 Release
-      #    每次构建都更新 tag v1.0.0 的 Release，附件整体替换。
-      # ---------------------------------------------------------
+      # -------------------------------------------------------
+      # 发布到 Release
+      # -------------------------------------------------------
       - name: 发布/更新 Release
-        if: success()
+        if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          KIND: ${{ env.KIND }}
         run: |
-          set -e
+          set -x
           TAG=v1.0.0
-          # 删掉同名旧附件，再传新的，避免 Release 里堆一堆历史包
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "githup-hong v1.0.0" --notes "自动构建产物"
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --title "githup-hong v1.0.0" --notes "自动构建产物"
           for a in $(gh release view "$TAG" --json assets -q '.assets[].name'); do
             gh release delete-asset "$TAG" "$a" -y || true
           done
-          if ls out/*.hap >/dev/null 2>&1; then
-            gh release upload "$TAG" out/*.hap --clobber
-          else
-            echo "没有签名产物，改传未签名的"
-            mkdir -p out
-            find entry/build -name "*.hap" -exec cp {} out/ \; || true
-            gh release upload "$TAG" out/*.hap --clobber || true
-          fi
-          gh release view "$TAG"
+          ls out/ 2>/dev/null
+          if ls out/*.hap >/dev/null 2>&1; then gh release upload "$TAG" out/*.hap --clobber; fi
+          echo "---- 校验值 ----"
+          for f in out/*.hap; do [ -f "$f" ] && echo "$f $(stat -c%s $f) sha256=$(sha256sum $f|cut -d' ' -f1)"; done
+        continue-on-error: true
+
+      # -------------------------------------------------------
+      # 把日志推到 ci-logs 分支（维护环境读不到 Actions 日志接口，靠这个回传）
+      # -------------------------------------------------------
+      - name: 上报构建日志
+        if: always()
+        run: |
+          git config user.name "githup-hong-ci"
+          git config user.email "ci@users.noreply.github.com"
+          git checkout -B ci-logs
+          mkdir -p ci
+          cp "$GITHUB_WORKSPACE/ci-build.log" ci/last-build.log
+          git add -f ci
+          git commit -m "CI 日志 run $GITHUB_RUN_ID" || echo "无变化"
+          git push -f origin ci-logs
