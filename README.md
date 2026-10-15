@@ -145,9 +145,23 @@ entry/build/default/outputs/default/entry-default-signed.hap
 
 ### 5. 发布
 
-1. 把这个 HAP 作为 Release 附件上传；
-2. 回填仓库根目录 `version.json` 的 `hap` / `size` / `sha256` 三个字段；
-3. `sha256` 用 `sha256sum entry-default-signed.hap` 取。
+出完包别手动搬文件 —— 三件容易漏的事（算 sha256、回填 `version.json`、
+挂 Release 附件）漏一件，App 内的「检查更新」就会给出错误结论。
+上游 Android 版踩过「版本号没变、值却是上一个包的」，用户点
+「检查更新」看到「你已是最新版本」，其实根本没拿到新包。
+
+用仓库里这个脚本一条命令做完：
+
+```bash
+export GITHUB_TOKEN=ghp_xxx    # 只勾本仓库 Contents 读写权限的 fine-grained PAT
+python3 tools/publish-hap.py entry/build/default/outputs/default/entry-default-signed.hap
+```
+
+它会依次做：算 SHA-256 → 回填 `version.json` 的 `size` / `sha256` →
+上传附件到 Release → 把 `hap` 字段指向附件直链。
+Release 不存在时加 `--new` 自动新建；只想先看看值的话加 `--dry-run`。
+
+脚本跑完还要把改过的 `version.json` 提交推送，它会在最后提醒你。
 
 > `.gitignore` 已排除 `*.hap` / `*.p12` / `*.cer` / `*.p7b`——
 > **签名材料绝不能进仓库**。
