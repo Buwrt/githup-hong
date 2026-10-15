@@ -35,9 +35,8 @@
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
 
-  // 鸿蒙版：更新指向 githup-hong 自己的发布页（原 githup 发的是 APK，鸿蒙装不了）
   var OWNER = 'Buwrt';
-  var REPO = 'githup-hong';
+  var REPO = 'githup';
   var MANIFEST = 'version.json';   // 仓库根目录的版本清单（Release 的备用来源）
   var RAW_BASE = 'https://raw.githubusercontent.com/' + OWNER + '/' + REPO + '/main';
   var SKIP_KEY = 'updSkipVersion'; // 用户主动跳过的新版本号

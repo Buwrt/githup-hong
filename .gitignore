@@ -1,13 +1,11 @@
+# 本地数据不入库
+data/
+downloads/
+logs/
 node_modules/
-.idea/
-.hvigor/
-.cxx/
-build/
-oh_modules/
-local.properties
-*.hap
-*.app
-*.p12
-*.cer
-*.p7b
-*.csr
+
+# 系统垃圾
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log

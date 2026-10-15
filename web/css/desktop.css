@@ -1,0 +1,180 @@
+/* ============================================================
+ * desktop.css —— 宽屏适配
+ *
+ * 这一份只在桌面端由本地服务注入，web/ 里其它文件的字节与 Android 版
+ * 完全一致。思路是「不动 DOM，只改摆法」：
+ *
+ *   · 底栏（#tabbar）本来是悬浮在底部的一枚胶囊，宽屏下把它立起来，
+ *     变成左侧固定侧栏 —— 复用同一批 .tab 按钮，切换逻辑一行不用改；
+ *   · 顶栏与内容区各自让出 220px；
+ *   · 手机上靠 :active 表达反馈，桌面上补上 :hover；
+ *   · 弹层（.sheet）在宽屏下收成居中的对话框。
+ *
+ * 断点取 900px：低于这个宽度（窄窗口、平板竖持）仍走手机那套底栏。
+ * ============================================================ */
+
+/* ---------- 桌面基础：鼠标手感 ---------- */
+@media (min-width: 900px) {
+  :root {
+    --sidebar-w: 220px;
+  }
+
+  html, body {
+    /* 手机上靠系统字体渲染，桌面上用回界面字体，长文本更利落 */
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 细滚动条：默认那条又宽又黑，压在浅色卡片上很抢眼 */
+  #view::-webkit-scrollbar { width: 10px; height: 10px; }
+  #view::-webkit-scrollbar-thumb {
+    background: rgba(127, 127, 127, .35);
+    border-radius: 6px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  #view::-webkit-scrollbar-thumb:hover { background: rgba(127, 127, 127, .55); background-clip: content-box; }
+  #view::-webkit-scrollbar-track { background: transparent; }
+
+  .icon-btn:hover { background: var(--btn-bg-hover, rgba(127, 127, 127, .12)); }
+  .btn:hover { filter: brightness(1.06); }
+
+  /* ---------- 底栏 → 左侧栏 ---------- */
+  #tabbar {
+    left: 0;
+    right: auto;
+    top: 0;
+    bottom: 0;
+    width: var(--sidebar-w);
+    max-width: none;
+    height: auto;
+    margin: 0;
+    padding: 10px 10px;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 2px;
+    border-radius: 0;
+    border-right: 1px solid var(--border);
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: var(--header-bg, var(--canvas));
+    overflow-y: auto;
+  }
+
+  /* 侧栏顶部给标题留白，别和顶栏挤在一起 */
+  #tabbar::after {
+    content: '';
+    display: block;
+    height: 8px;
+    flex: none;
+  }
+
+  /* 滑动指示器只在胶囊形态下有意义，竖排时整条去掉 */
+  #tab-ind, .tab-ind { display: none !important; }
+
+  .tab {
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 12px;
+    height: 40px;
+    padding: 0 12px;
+    border-radius: 8px;
+    position: relative;
+    color: var(--fg-muted);
+    font-size: 14px;
+  }
+
+  .tab-ico { height: 20px; }
+  .tab-ico svg { width: 20px; height: 20px; }
+  .tab-label { font-size: 13px; line-height: 1.2; }
+
+  .tab:hover { background: rgba(127, 127, 127, .12); }
+  .tab.active {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent);
+  }
+  .tab.active::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 8px; bottom: 8px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: var(--accent);
+  }
+  .tab:active .tab-ico { transform: none; }
+  .tab:active .tab-label { transform: none; }
+  .tab.active .tab-ico { transform: none; }
+
+  /* 通知角标：竖排时挪到文字右侧，别压在图标上 */
+  .tab .badge {
+    position: static;
+    margin-left: auto;
+  }
+
+  /* ---------- 顶栏与内容让位 ---------- */
+  #appbar { margin-left: var(--sidebar-w); }
+  #appbar .appbar-inner { max-width: 980px; }
+
+  #view {
+    padding-left: var(--sidebar-w);
+    padding-bottom: 32px;
+  }
+  #view > * { max-width: 980px; }
+  #view.no-tabbar { padding-bottom: 32px; }
+
+  /* 悬浮圆钮回到右下角 */
+  .fab { right: 24px; }
+
+  /* ---------- 弹层收成对话框 ---------- */
+  .sheet {
+    max-width: 640px;
+    margin: 0 auto;
+    border-radius: 14px 14px 0 0;
+  }
+  .sheet.full {
+    height: min(88vh, 900px);
+    max-height: min(88vh, 900px);
+    border-radius: 14px;
+    margin-bottom: 4vh;
+  }
+
+  .toast { max-width: 560px; }
+}
+
+/* ---------- 更宽的屏幕：内容不再无限拉伸 ---------- */
+@media (min-width: 1440px) {
+  #appbar .appbar-inner { max-width: 1100px; }
+  #view > * { max-width: 1100px; }
+}
+
+/* ---------- 桌面提示条 ---------- */
+#desktop-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%) translateY(12px);
+  max-width: min(560px, 86vw);
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: rgba(31, 35, 40, .92);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.5;
+  z-index: 4000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s ease, transform .18s ease;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .28);
+  word-break: break-all;
+}
+#desktop-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ---------- 窄窗口提示：侧栏形态已经不适用 ---------- */
+@media (max-width: 899px) {
+  #desktop-toast { bottom: calc(var(--tabbar-h, 64px) + 24px); }
+}

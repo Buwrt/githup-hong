@@ -1,198 +1,95 @@
-# githup-hong
+# githup 桌面版
 
-githup 的**纯血鸿蒙（HarmonyOS NEXT）**版本：ArkTS + ArkWeb 重写原生层，
-前端 25,195 行 JS **一行未改**原样复用。
+把 [githup](https://github.com/Buwrt/githup)（Android 版 GitHub 客户端）原样搬到电脑上用。
 
-上游 Android 版：[Buwrt/githup](https://github.com/Buwrt/githup)（v1.2.15）
+**没有重写界面**——`web/` 目录里的每一个文件都与 Android 版 `app/src/main/assets/web/` 逐字节相同。桌面版做的事情只有两件：
+
+1. 起一个只监听 `127.0.0.1` 的本地服务，托管这些前端文件；
+2. 在浏览器里把 Android 版 `JsBridge` 那 60 多个原生方法重新实现一遍（`web/js/desktop-bridge.js`），前端代码一行都不用改。
+
+额外补了一份宽屏样式（`web/css/desktop.css`）：底栏变成左侧栏，内容区限宽居中，弹层收成对话框。桌面脚本与样式由服务端在返回页面时注入，所以上游一更新，把 `web/` 覆盖过来就能用。
 
 ---
 
-## 它是什么
+## 怎么跑
 
-一个把 GitHub 装进手机的第三方客户端。原生层只做四件事：网络、存储、
-文件、通知；界面、路由、业务逻辑全在那 2.5 万行前端 JS 里。
+前置条件：电脑装了 **Node.js 18 或更高版本**（[nodejs.org](https://nodejs.org)，一路下一步）。
 
-鸿蒙版的关键做法是**不重写前端**：用 `Web` 组件加载 rawfile 里的
-`web/index.html`，再通过 `javaScriptProxy` 把 `NativeBridge` 注入 `window`，
-方法名与参数顺序和 Android 版 `JsBridge.java` 逐一对齐，前端无感知。
+- **Windows**：双击 `启动-githup.bat`
+- **macOS / Linux**：终端里 `./启动-githup.sh`，或直接 `node server.js`
 
-| 层 | Android 版 | 鸿蒙版 |
+服务起来后会自动打开浏览器，地址 `http://127.0.0.1:8733/`。端口被占用时会自动换一个，看窗口里的提示。
+
+停止使用：在服务窗口按 `Ctrl+C`。
+
+> 这是一个「本地服务 + 浏览器」的形态，不是一个独立窗口的 exe。想做成独立窗口见文末「下一步」。
+
+---
+
+## 功能支持情况
+
+| 功能 | 桌面版 | 说明 |
 |---|---|---|
-| 原生 | Java 15,569 行 / 24 文件 | ArkTS 约 1,800 行 / 8 文件 |
-| 前端 | `assets/web` | `rawfile/web`（**逐文件一致**） |
-| 第三方依赖 | 0 | 0 |
+| 登录 / 令牌、浏览仓库、搜索、通知 | ✅ | 经本地服务转发 GitHub API |
+| README / Issue / PR 渲染、图片 | ✅ | 图片走 base64 通道 |
+| 阅读 Markdown、代码高亮 | ✅ | 与 Android 版一致 |
+| 翻译 | ✅ | 引擎配置同样在本机保存 |
+| 两步验证器（TOTP） | ✅ | 密钥加密存在本地，断网可用 |
+| 上传文件 / 图片 / 文件夹 | ✅ | 用系统文件选择器 |
+| 下载 Release 附件、Actions 产物 | ✅ | 存到 `downloads/` 目录 |
+| 云端打包 APK（keystore 生成） | ✅ | 调用本机 openssl |
+| 扫一扫二维码 | ✅ | 浏览器摄像头权限（localhost 属安全上下文） |
+| 后台通知轮询 | ❌ | 关掉页面就停，桌面版不做常驻 |
+| 通知栏常驻动态码 | ❌ | 页面上直接看码 |
+| 安装 APK | ❌ | 桌面版只把包取回来存到 `downloads/apk/` |
+| 多下载通道测速 | ❌ | 桌面只有直连一条路，不给假数据 |
 
 ---
 
-## ⚠️ 当前状态：未经编译验证（重要）
-
-本工程由源码移植生成，**没有经过 DevEco Studio 编译**。原因是构建环境
-不可得：HarmonyOS 的 SDK 与 hvigor 都在华为私有源
-（`repo.harmonyos.com`，匿名访问返回 403），无法在 CI 或沙盒里获取。
-
-请在 DevEco Studio 里打开后按下面的步骤走一遍，预期需要修少量 ArkTS
-类型与 API 细节。所有模块都写了详细注释说明它与 Android 版的对应关系，
-改起来有据可依。
-
----
-
-## 目录结构
+## 目录
 
 ```
-entry/src/main/ets/
-├── entryability/EntryAbility.ets   入口：加载页面、接收外部 GitHub 链接
-├── pages/Index.ets                 全屏 ArkWeb + javaScriptProxy 注册
-└── bridge/
-    ├── NativeBridge.ets            桥接总入口（对齐 JsBridge.java）
-    ├── GhHttp.ets                  网络层（对齐 Http.java）
-    ├── SecureStore.ets             令牌加密存储（对齐 SecurePrefs.java）
-    ├── TotpEngine.ets              动态码算法（对齐 Totp.java）
-    ├── TotpNotify.ets              常驻动态码通知（对齐 TotpService.java）
-    ├── NotifWatch.ets              GitHub 通知轮询（对齐 NotifWatchReceiver.java）
-    └── DownloadChannels.ets        下载加速镜像（对齐 DownloadChannels.java）
+server.js              本地服务（零第三方依赖，只用 Node 内置模块）
+web/                   与 Android 版完全一致的前端
+web/js/desktop-bridge.js   ← 桌面版新增：原生层的浏览器实现
+web/css/desktop.css        ← 桌面版新增：宽屏适配
+启动-githup.bat / .sh  启动脚本
+data/                  令牌、设置、两步验证密钥（加密存放）
+downloads/             下载目录
+logs/                  运行日志
 ```
 
 ---
 
-## 已移植 / 未移植
+## 关于安全
 
-### 已移植
+- 服务**只监听 `127.0.0.1`**，局域网里的其它机器连不上；非本机的 `Origin` 一律拒绝。
+- 令牌与两步验证根密钥存在 `data/store.enc`，用本机生成的随机密钥做 **AES-256-GCM** 加密。它挡得住「随手翻开文件就看到明文」，挡不住已经能读你用户目录的人——桌面端没有 Android Keystore 那种硬件背书，这点如实说明。
+- 两步验证的密钥**不会**写进浏览器 localStorage。Android 版的 `Store` 是「原生 + localStorage 双写」，桌面版接管了这一层，敏感键只走加密存储。
+- 转发请求时会挡掉环回地址与私有网段，避免本地服务被当成打内网的跳板。
+- 重定向逐跳复检目标地址，跨域跳转时不外带 `Authorization`。
+- 想彻底退出：关掉服务窗口即可，令牌不会留在浏览器里。
 
-| 能力 | 说明 |
+---
+
+## 快捷键
+
+| 键 | 作用 |
 |---|---|
-| 网络栈 | 系统 `@kit.NetworkKit`，重定向时**跨域自动剥离 Authorization** |
-| 令牌存储 | AES-256-GCM，对齐 `SecurePrefs.java` |
-| 文件选择与上传 | `picker` + `@kit.CoreFileKit` |
-| 剪贴板、震动、安全区 | 全部对齐 |
-| 错误日志 | 只记当天，存应用私有目录 |
-| **两步验证器** | TOTP/HOTP 算法 + 常驻通知刷新 |
-| **下载加速镜像** | 18 条通道，镜像在前直连兜底 |
-| **GitHub 通知轮询** | 15 分钟一轮，未读汇总成一条通知 |
-| 深色模式 / 状态栏 | 透明状态栏，前端自己管主题 |
-
-### 未移植（及原因）
-
-| Android 版能力 | 为什么没移植 |
-|---|---|
-| 五环防护链 / 签名自校验 | 依赖 `PackageManager` 的重签名检测在鸿蒙上没有等价物；鸿蒙由**系统在安装时**校验 HAP 签名，运行时只能核对 bundleName 与签名指纹（`certSha256()`） |
-| 断点续传 / 多线程下载 | 首版走 `requestB64` 全量读，够用但大文件体验一般；可换 `@kit.RequestKit` |
-| 限速通道 / 劝 Star | 那是 Android 版的产品决策（没点 Star 就限速），鸿蒙版不沿用 |
-| APK 安装 / 自动更新 | 鸿蒙没有 APK；`installApkChecked` 改为引导到本仓库 Release 页 |
-| 本地生成签名密钥 | 手机上给 APK 签名在鸿蒙上没有对应场景 |
-| 选文件夹 | ArkTS 的 `picker` 不提供目录选择 |
-
-### 已知限制
-
-- **通知轮询在进程被杀后不会自动恢复**：Android 靠 AlarmManager 定点唤醒，
-  鸿蒙最接近的是 `WorkSchedulerExtensionAbility`，但它不保证精确时刻。
-  首版采用「前台 setInterval + 退后台短时任务续命」两段式，
-  补 ExtensionAbility 的要点写在 `NotifWatch.ets` 文件末尾。
-- **长时任务会在通知栏显示系统级的「正在运行」提示**，这是系统规定，
-  无法隐藏；关掉动态码开关会同时撤掉它。
-- `uploadMultipart` 退化为单体 PUT（拼 multipart boundary 未实现），
-  覆盖「上传 Release 附件 / 传文件到仓库」两条主干路径。
+| `1`–`5` | 切换首页 / 通知 / 探索 / 搜索 / 我的 |
+| `Ctrl`/`Cmd + K` | 跳到搜索 |
+| `Esc` | 返回上一页 |
 
 ---
 
-## 编译与签名（必须在本机 DevEco Studio 完成）
+## 下一步：做成独立窗口
 
-HAP 签名必须用**你自己的华为开发者账号证书**，这一步别人替不了。
-
-### 1. 准备环境
-
-- DevEco Studio（支持 API 12 / HarmonyOS 5.0）
-- 华为开发者账号：AppGallery Connect → 用户与访问 → 证书管理
-- 在 AGC 建一个应用，**包名必须是 `com.hubmobile.hong`**（与
-  `AppScope/app.json5` 的 `bundleName` 一致，不一致签名会失败）
-
-### 2. 生成签名材料
-
-在 AGC 下载（或本地生成 CSR 后申请）三样东西：
-
-| 文件 | 用途 |
-|---|---|
-| `.p12` | 密钥库（含私钥） |
-| `.cer` | 证书 |
-| `.p7b` | Profile 文件（绑定包名与设备） |
-
-### 3. 配置签名
-
-DevEco Studio → **File → Project Structure → Signing Configs**，
-勾选 `Automatically generate signature` 走自动签名（需登录华为账号），
-或手动填：
-
-```
-Store File:      <你的>.p12
-Store Password:  <密钥库口令>
-Key Alias:       <别名>
-Key Password:    <密钥口令>
-Sign Alg:        SHA256withECDSA
-Profile File:    <你的>.p7b
-Certpath File:   <你的>.cer
-```
-
-### 4. 出包
-
-```
-Build → Build Hap(s)/APP(s) → Build Hap(s)
-```
-
-产物路径：
-
-```
-entry/build/default/outputs/default/entry-default-signed.hap
-```
-
-### 5. 发布
-
-出完包别手动搬文件 —— 三件容易漏的事（算 sha256、回填 `version.json`、
-挂 Release 附件）漏一件，App 内的「检查更新」就会给出错误结论。
-上游 Android 版踩过「版本号没变、值却是上一个包的」，用户点
-「检查更新」看到「你已是最新版本」，其实根本没拿到新包。
-
-用仓库里这个脚本一条命令做完：
+现在的形态是「本地服务 + 系统浏览器」。如果更想要一个独立窗口、能固定到任务栏的 exe，最常见的是套一层 Electron：主进程里 `require('./server.js')` 起服务，窗口直接 `loadURL('http://127.0.0.1:8733/')` 即可，前端与桥接代码都不用动。
 
 ```bash
-export GITHUB_TOKEN=ghp_xxx    # 只勾本仓库 Contents 读写权限的 fine-grained PAT
-python3 tools/publish-hap.py entry/build/default/outputs/default/entry-default-signed.hap
+npm i -D electron
+npm i -D electron-builder
+npx electron-builder --win      # 产出 Windows 安装包
 ```
 
-它会依次做：算 SHA-256 → 回填 `version.json` 的 `size` / `sha256` →
-上传附件到 Release → 把 `hap` 字段指向附件直链。
-Release 不存在时加 `--new` 自动新建；只想先看看值的话加 `--dry-run`。
-
-脚本跑完还要把改过的 `version.json` 提交推送，它会在最后提醒你。
-
-> `.gitignore` 已排除 `*.hap` / `*.p12` / `*.cer` / `*.p7b`——
-> **签名材料绝不能进仓库**。
-
----
-
-## 前端怎么保持同步
-
-前端文件在 `entry/src/main/resources/rawfile/web/`，与上游
-`app/src/main/assets/web/` 逐文件一致。上游更新时同步方式：
-
-```bash
-cp -r <githup>/app/src/main/assets/web/* \
-      <githup-hong>/entry/src/main/resources/rawfile/web/
-```
-
-同步后如果上游新增了 `NativeBridge.xxx` 调用，需要：
-1. 在 `NativeBridge.ets` 实现同名方法；
-2. 把方法名加进 `Index.ets` 的 `SYNC_METHODS`（有返回值）
-   或 `ASYNC_METHODS`（无返回值、用 `runJavaScript` 回吐）。
-
----
-
-## 隐私相关
-
-- 令牌：AES-256-GCM 加密后存应用私有目录，鸿蒙应用沙箱本身隔离。
-- **翻译功能会把页面正文发给第三方引擎**（有道 / 百度 / DeepL / Google /
-  MyMemory / 小牛），默认自动挑最快的那个。私有仓库慎用整页翻译。
-- 下载走第三方镜像时**不转发 Authorization**，但 URL 会送到镜像服务器。
-- 两步验证密钥：磁盘上明文存（与上游 Android 版一致）。
-
-## License
-
-Apache-2.0（与上游一致）
+（本机环境无法下载 Electron 二进制，这条路径没有实际跑过，仅作参考。）
